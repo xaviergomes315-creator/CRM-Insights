@@ -2,7 +2,11 @@
   "name": "@workspace/crm-dashboard",
   "version": "0.0.0",
   "private": true,
-  "type": "module",
+  "type": "module",AI, my project structure is currently messy and my code is trapped inside an 'artifacts' folder. Please perform these steps automatically:
+  ​Move all project files (src, package.json, vite.config.ts, tsconfig.json, index.html) from the 'artifacts/crm-dashboard' folder to the root directory.
+  ​Delete the empty 'artifacts' folder.
+  ​Run 'npm install' to ensure all dependencies are set up.
+  ​Finally, run 'npm run dev' to start the project."*
   "scripts": {
     "dev": "vite --config vite.config.ts --host 0.0.0.0",
     "build": "vite build --config vite.config.ts",
