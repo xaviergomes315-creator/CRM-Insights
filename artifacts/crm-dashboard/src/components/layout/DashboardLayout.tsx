@@ -16,7 +16,7 @@ const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, exact: true },
   { to: '/leads', label: 'CRM Leads', icon: Users, exact: false },
   { to: '/telecaller', label: 'Telecaller', icon: PhoneCall, exact: false },
-  { to: '/gst-invoices', label: 'GST Invoices', icon: FileText, exact: false },
+  { to: '/invoices', label: 'Invoices', icon: FileText, exact: false },
   { to: '/client-portal', label: 'Client Portal', icon: Globe, exact: false },
 ];
 
