@@ -10,12 +10,14 @@ import {
   Search,
   ChevronRight,
   Building2,
+  MessageCircle,
 } from 'lucide-react';
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, exact: true },
   { to: '/leads', label: 'CRM Leads', icon: Users, exact: false },
   { to: '/telecaller', label: 'Telecaller', icon: PhoneCall, exact: false },
+  { to: '/whatsapp', label: 'WhatsApp', icon: MessageCircle, exact: false },
   { to: '/invoices', label: 'Invoices', icon: FileText, exact: false },
   { to: '/client-portal', label: 'Client Portal', icon: Globe, exact: false },
 ];

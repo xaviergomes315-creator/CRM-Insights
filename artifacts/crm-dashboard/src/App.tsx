@@ -7,6 +7,7 @@ import Dashboard from '@/pages/Dashboard';
 import LeadsPage from '@/pages/LeadsPage';
 import TelecallerPage from '@/pages/TelecallerPage';
 import InvoicePage from '@/pages/InvoicePage';
+import WhatsAppPage from '@/pages/WhatsAppPage';
 import NotFound from '@/pages/not-found';
 
 const queryClient = new QueryClient();
@@ -21,6 +22,7 @@ function App() {
               <Route path="/" element={<Dashboard />} />
               <Route path="/leads" element={<LeadsPage />} />
               <Route path="/telecaller" element={<TelecallerPage />} />
+              <Route path="/whatsapp" element={<WhatsAppPage />} />
               <Route path="/invoices" element={<InvoicePage />} />
             </Route>
             <Route path="*" element={<NotFound />} />
