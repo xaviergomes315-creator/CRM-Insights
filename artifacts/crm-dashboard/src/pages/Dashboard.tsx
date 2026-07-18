@@ -1,8 +1,9 @@
 import { clsx } from 'clsx';
 import { useNavigate } from 'react-router-dom';
-import { AlertCircle, Clock, CheckCircle2, CalendarDays, Phone, ArrowRight, Users, TrendingUp, FileText, Kanban } from 'lucide-react';
+import { AlertCircle, Clock, CheckCircle2, CalendarDays, Phone, ArrowRight, Users, TrendingUp, FileText, Kanban, ShieldCheck, ShieldAlert } from 'lucide-react';
 import { useLeads } from '@/contexts/LeadsContext';
 import { useTasks, type Task } from '@/contexts/TasksContext';
+import { useAuth } from '@/contexts/AuthContext';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -179,6 +180,7 @@ export default function Dashboard() {
   const { leads } = useLeads();
   const { tasks } = useTasks();
   const navigate = useNavigate();
+  const { user, isAdmin, isTelecaller } = useAuth();
 
   const totalLeads   = leads.length;
   const newLeads     = leads.filter(l => l.status === 'New').length;
@@ -188,12 +190,49 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       {/* Welcome */}
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">
+            Welcome back, {user?.name ?? 'User'} 👋
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+          </p>
+        </div>
+        {/* Role badge */}
+        <div className={clsx(
+          'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold border self-start sm:self-auto',
+          isTelecaller
+            ? 'bg-amber-50 border-amber-200 text-amber-700'
+            : 'bg-emerald-50 border-emerald-200 text-emerald-700',
+        )}>
+          {isTelecaller
+            ? <ShieldAlert className="h-3.5 w-3.5" />
+            : <ShieldCheck className="h-3.5 w-3.5" />
+          }
+          {user?.role} Account
+        </div>
       </div>
+
+      {/* Telecaller data-protection notice */}
+      {isTelecaller && (
+        <div className="flex items-center gap-2 rounded-lg bg-amber-50 border border-amber-200 px-4 py-2.5 text-xs text-amber-700">
+          <ShieldAlert className="h-3.5 w-3.5 flex-shrink-0" />
+          <span>
+            <strong>Data Protection Active:</strong> Phone numbers are masked and export features are disabled for your role.
+          </span>
+        </div>
+      )}
+
+      {/* Admin notice */}
+      {isAdmin && (
+        <div className="flex items-center gap-2 rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-2.5 text-xs text-emerald-700">
+          <ShieldCheck className="h-3.5 w-3.5 flex-shrink-0" />
+          <span>
+            <strong>Admin Access:</strong> You have full access to all leads, phone numbers, analytics, and export features.
+          </span>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">

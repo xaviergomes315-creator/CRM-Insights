@@ -3,6 +3,7 @@ import { clsx } from 'clsx';
 import { Plus, Trash2, CheckCircle2, Clock, AlertCircle, CalendarDays } from 'lucide-react';
 import { useLeads } from '@/contexts/LeadsContext';
 import { useTasks, type Task } from '@/contexts/TasksContext';
+import { useAuth, maskPhone } from '@/contexts/AuthContext';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -31,7 +32,7 @@ function fmtDate(dateStr: string) {
 
 // ─── Task row ─────────────────────────────────────────────────────────────────
 
-function TaskRow({ task, onDone, onDelete }: { task: Task; onDone: () => void; onDelete: () => void }) {
+function TaskRow({ task, onDone, onDelete, masked = false }: { task: Task; onDone: () => void; onDelete: () => void; masked?: boolean }) {
   const status = getTaskStatus(task);
 
   const statusBadge = {
@@ -81,7 +82,16 @@ function TaskRow({ task, onDone, onDelete }: { task: Task; onDone: () => void; o
             <CalendarDays className="h-3 w-3" />
             {fmtDate(task.followUpDate)}{task.followUpTime ? ` at ${task.followUpTime}` : ''}
           </span>
-          {task.leadPhone && <span>{task.leadPhone}</span>}
+          {/* Phone: masked display for Telecaller; actual tel: links use the real number */}
+        {task.leadPhone && (
+          <a
+            href={`tel:${task.leadPhone}`}
+            className="flex items-center gap-1 hover:text-primary transition-colors font-mono"
+            title={masked ? 'Click to call' : task.leadPhone}
+          >
+            {masked ? maskPhone(task.leadPhone) : task.leadPhone}
+          </a>
+        )}
         </div>
         {task.note && (
           <p className="mt-1 text-xs text-muted-foreground italic truncate">{task.note}</p>
@@ -125,6 +135,7 @@ const TABS: { id: FilterTab; label: string }[] = [
 export default function TasksPage() {
   const { leads } = useLeads();
   const { tasks, addTask, markDone, deleteTask } = useTasks();
+  const { isTelecaller } = useAuth();
 
   const [tab, setTab] = useState<FilterTab>('all');
   const [showForm, setShowForm] = useState(false);
@@ -202,7 +213,9 @@ export default function TasksPage() {
               >
                 <option value="">Select a lead…</option>
                 {leads.map(l => (
-                  <option key={l.id} value={l.id}>{l.name} ({l.phone})</option>
+                  <option key={l.id} value={l.id}>
+                    {l.name} ({isTelecaller ? maskPhone(l.phone) : l.phone})
+                  </option>
                 ))}
               </select>
             </div>
@@ -294,6 +307,7 @@ export default function TasksPage() {
               task={task}
               onDone={() => markDone(task.id)}
               onDelete={() => deleteTask(task.id)}
+              masked={isTelecaller}
             />
           ))}
         </div>

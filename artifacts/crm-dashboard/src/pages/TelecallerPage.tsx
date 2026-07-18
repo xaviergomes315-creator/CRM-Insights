@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { clsx } from 'clsx';
 import { CalendarDays, Phone, X, ChevronLeft, ChevronRight, Zap, RefreshCw, Bell } from 'lucide-react';
 import { useLeads, type LeadSource } from '@/contexts/LeadsContext';
+import { useAuth, maskPhone } from '@/contexts/AuthContext';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -109,7 +110,7 @@ function NewLeadAlertToast({ count, latestName, onClose }: AlertToastProps) {
 // ─── Follow-up Calendar ───────────────────────────────────────────────────────
 
 function FollowUpCalendar({ calls }: { calls: PendingCall[] }) {
-  const today = new Date(2026, 6, 18);
+  const today = new Date();
   const [cursor, setCursor] = useState({ year: today.getFullYear(), month: today.getMonth() });
 
   const scheduledDates = new Set(calls.filter(c => c.nextCallDate).map(c => c.nextCallDate as string));
@@ -168,6 +169,7 @@ function FollowUpCalendar({ calls }: { calls: PendingCall[] }) {
 
 function LiveLeadFeed() {
   const { leads } = useLeads();
+  const { isTelecaller } = useAuth();
   const [tick, setTick]                 = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState(Date.now());
@@ -254,7 +256,10 @@ function LiveLeadFeed() {
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-muted-foreground">{lead.phone}</p>
+                {/* Display masked for Telecaller; real number stays in tel: links only */}
+                <p className="text-xs text-muted-foreground font-mono">
+                  {isTelecaller ? maskPhone(lead.phone) : lead.phone}
+                </p>
               </div>
 
               {/* Source badge — hidden on very small screens */}
@@ -289,6 +294,7 @@ function LiveLeadFeed() {
 
 export default function TelecallerPage() {
   const { newArrivals, dismissArrivals } = useLeads();
+  const { isTelecaller } = useAuth();
   const [calls, setCalls]             = useState<PendingCall[]>(INITIAL_CALLS);
   const [scheduling, setScheduling]   = useState<PendingCall | null>(null);
   const [form, setForm]               = useState<ScheduleForm>(EMPTY_FORM);
@@ -403,7 +409,17 @@ export default function TelecallerPage() {
                   calls.map((call, idx) => (
                     <tr key={call.id} className={clsx('border-b border-border last:border-0 transition-colors hover:bg-muted/30', idx % 2 === 0 ? 'bg-card' : 'bg-muted/10')}>
                       <td className="px-5 py-4 font-medium text-foreground whitespace-nowrap">{call.clientName}</td>
-                      <td className="px-5 py-4 text-muted-foreground whitespace-nowrap">{call.phone}</td>
+                      {/* Phone: masked display for Telecaller; tel: link always uses real number */}
+                      <td className="px-5 py-4 whitespace-nowrap">
+                        <a
+                          href={`tel:${call.phone}`}
+                          className="flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 transition-colors font-mono"
+                          title={isTelecaller ? 'Click to call' : call.phone}
+                        >
+                          <Phone className="h-3 w-3 flex-shrink-0" />
+                          {isTelecaller ? maskPhone(call.phone) : call.phone}
+                        </a>
+                      </td>
                       <td className="px-5 py-4 text-muted-foreground whitespace-nowrap">{formatDate(call.lastCalledDate)}</td>
                       <td className="px-5 py-4 whitespace-nowrap">
                         {call.nextCallDate
