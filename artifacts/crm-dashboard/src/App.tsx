@@ -19,6 +19,8 @@ import PipelineView from '@/pages/PipelineView';
 import ProposalPage from '@/pages/ProposalPage';
 import TasksPage from '@/pages/TasksPage';
 import AdminPage from '@/pages/AdminPage';
+import ClientPortal from '@/pages/ClientPortal';
+import Integrations from '@/pages/Integrations';
 import NotFound from '@/pages/not-found';
 
 const queryClient = new QueryClient();
@@ -54,7 +56,11 @@ function App() {
                         <Route path="/analytics"    element={<AnalyticsPage />} />
                         <Route path="/invoices"     element={<InvoicePage />}   />
                         <Route path="/admin"        element={<AdminPage />}     />
+                        <Route path="/integrations" element={<Integrations />}  />
                       </Route>
+
+                      {/* ── Accessible to all authenticated users ──────── */}
+                      <Route path="/client-portal" element={<ClientPortal />} />
                     </Route>
                   </Route>
 

@@ -5,7 +5,7 @@ import {
   LayoutDashboard, Users, PhoneCall, FileText, Globe,
   Bell, Search, ChevronRight, Building2, MessageCircle,
   CalendarDays, BarChart2, Menu, X, Kanban, ClipboardList,
-  LogOut, UserCog, ShieldCheck, ShieldAlert,
+  LogOut, UserCog, ShieldCheck, ShieldAlert, Webhook,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -21,10 +21,12 @@ const NAV_ITEMS = [
   { to: '/whatsapp',     label: 'WhatsApp',     icon: MessageCircle,   exact: false, adminOnly: false },
   { to: '/social-media', label: 'Social Media', icon: CalendarDays,    exact: false, adminOnly: false },
   // Admin-only pages — hidden from Telecaller
-  { to: '/analytics',    label: 'Analytics',    icon: BarChart2,       exact: false, adminOnly: true  },
-  { to: '/invoices',     label: 'Invoices',     icon: FileText,        exact: false, adminOnly: true  },
-  { to: '/admin',        label: 'Admin Panel',  icon: UserCog,         exact: false, adminOnly: true  },
-  { to: '/client-portal',label: 'Client Portal',icon: Globe,           exact: false, adminOnly: true  },
+  { to: '/analytics',    label: 'Analytics',    icon: BarChart2,  exact: false, adminOnly: true  },
+  { to: '/invoices',     label: 'Invoices',     icon: FileText,   exact: false, adminOnly: true  },
+  { to: '/admin',        label: 'Admin Panel',  icon: UserCog,    exact: false, adminOnly: true  },
+  { to: '/integrations', label: 'Integrations', icon: Webhook,    exact: false, adminOnly: true  },
+  // Visible to all authenticated users
+  { to: '/client-portal',label: 'Client Portal',icon: Globe,      exact: false, adminOnly: false },
 ] as const;
 
 // ─── Layout ───────────────────────────────────────────────────────────────────
