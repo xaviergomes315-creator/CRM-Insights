@@ -12,6 +12,7 @@ import {
   Building2,
   MessageCircle,
   CalendarDays,
+  BarChart2,
 } from 'lucide-react';
 
 const navItems = [
@@ -20,6 +21,7 @@ const navItems = [
   { to: '/telecaller', label: 'Telecaller', icon: PhoneCall, exact: false },
   { to: '/whatsapp', label: 'WhatsApp', icon: MessageCircle, exact: false },
   { to: '/social-media', label: 'Social Media', icon: CalendarDays, exact: false },
+  { to: '/analytics', label: 'Analytics', icon: BarChart2, exact: false },
   { to: '/invoices', label: 'Invoices', icon: FileText, exact: false },
   { to: '/client-portal', label: 'Client Portal', icon: Globe, exact: false },
 ];
