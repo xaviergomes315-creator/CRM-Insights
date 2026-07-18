@@ -3,7 +3,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { clsx } from 'clsx';
 import { Phone, AlertCircle, MessageCircle } from 'lucide-react';
 import { useLeads, type Lead, type LeadStatus, isIdleLead, getDripWhatsAppUrl } from '@/contexts/LeadsContext';
-import { useUser, maskPhone } from '@/contexts/UserContext';
+import { useAuth, maskPhone } from '@/contexts/AuthContext';
 
 // ─── Column config ────────────────────────────────────────────────────────────
 
@@ -19,7 +19,7 @@ const COLUMN_CONFIG: Record<LeadStatus, { header: string; dot: string; empty: st
 // ─── Draggable card ───────────────────────────────────────────────────────────
 
 function KanbanCard({ lead }: { lead: Lead }) {
-  const { isTelecaller } = useUser();
+  const { isTelecaller } = useAuth();
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({ id: lead.id });
 

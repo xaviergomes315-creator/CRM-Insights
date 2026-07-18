@@ -4,7 +4,7 @@ import { Send, CheckCircle2, Users, MessageSquare, X, CheckCheck } from 'lucide-
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type LeadStatus = 'New' | 'Contacted' | 'Closed';
+type LeadStatus = 'New' | 'Interested' | 'Demo Scheduled' | 'Closed';
 
 interface Lead {
   id: number;
@@ -16,19 +16,20 @@ interface Lead {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const STATUS_STYLES: Record<LeadStatus, string> = {
-  New:       'bg-blue-100 text-blue-700 border border-blue-200',
-  Contacted: 'bg-amber-100 text-amber-700 border border-amber-200',
-  Closed:    'bg-emerald-100 text-emerald-700 border border-emerald-200',
+  New:             'bg-blue-100 text-blue-700 border border-blue-200',
+  Interested:      'bg-amber-100 text-amber-700 border border-amber-200',
+  'Demo Scheduled':'bg-violet-100 text-violet-700 border border-violet-200',
+  Closed:          'bg-emerald-100 text-emerald-700 border border-emerald-200',
 };
 
 const LEADS: Lead[] = [
-  { id: 1, name: 'Priya Sharma',  phone: '+91 98001 11111', status: 'New' },
-  { id: 2, name: 'Rahul Mehta',   phone: '+91 98001 22222', status: 'Contacted' },
-  { id: 3, name: 'Anita Desai',   phone: '+91 98001 33333', status: 'Closed' },
-  { id: 4, name: 'Vikram Nair',   phone: '+91 98001 44444', status: 'New' },
-  { id: 5, name: 'Sunita Patel',  phone: '+91 98001 55555', status: 'Contacted' },
-  { id: 6, name: 'Deepak Kumar',  phone: '+91 98001 66666', status: 'New' },
-  { id: 7, name: 'Meena Joshi',   phone: '+91 98001 77777', status: 'Closed' },
+  { id: 1, name: 'Priya Sharma',  phone: '+91 98001 11111', status: 'New'            },
+  { id: 2, name: 'Rahul Mehta',   phone: '+91 98001 22222', status: 'Interested'     },
+  { id: 3, name: 'Anita Desai',   phone: '+91 98001 33333', status: 'Closed'         },
+  { id: 4, name: 'Vikram Nair',   phone: '+91 98001 44444', status: 'New'            },
+  { id: 5, name: 'Sunita Patel',  phone: '+91 98001 55555', status: 'Demo Scheduled' },
+  { id: 6, name: 'Deepak Kumar',  phone: '+91 98001 66666', status: 'New'            },
+  { id: 7, name: 'Meena Joshi',   phone: '+91 98001 77777', status: 'Closed'         },
 ];
 
 const MESSAGE_TEMPLATES = [

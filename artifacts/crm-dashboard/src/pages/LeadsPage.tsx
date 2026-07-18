@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { clsx } from 'clsx';
 import { Plus, Pencil, Trash2, X, Filter, AlertCircle, MessageCircle } from 'lucide-react';
 import { useLeads, type LeadSource, type LeadStatus, type Lead, isIdleLead, getDripWhatsAppUrl } from '@/contexts/LeadsContext';
-import { useUser, maskPhone } from '@/contexts/UserContext';
+import { useAuth, maskPhone } from '@/contexts/AuthContext';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -33,7 +33,7 @@ const EMPTY_FORM: LeadForm = { name: '', email: '', phone: '', status: 'New', so
 
 export default function LeadsPage() {
   const { leads, addLead, updateLead, deleteLead } = useLeads();
-  const { isTelecaller } = useUser();
+  const { isTelecaller } = useAuth();
 
   const [modalOpen, setModalOpen]       = useState(false);
   const [editingLead, setEditingLead]   = useState<Lead | null>(null);

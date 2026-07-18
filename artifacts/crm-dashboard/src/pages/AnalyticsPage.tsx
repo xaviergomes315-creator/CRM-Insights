@@ -9,7 +9,7 @@ import { TrendingUp, Users, CheckCircle, Clock, BarChart2 } from 'lucide-react';
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type LeadSource = 'WhatsApp' | 'Website' | 'IndiaMart' | 'JustDial' | 'Social Media';
-type LeadStatus = 'New' | 'Contacted' | 'Closed';
+type LeadStatus = 'New' | 'Interested' | 'Demo Scheduled' | 'Closed';
 
 interface Lead {
   source: LeadSource;
@@ -19,16 +19,16 @@ interface Lead {
 // ─── Data (mirrors LeadsPage initial state) ──────────────────────────────────
 
 const LEADS: Lead[] = [
-  { source: 'IndiaMart',    status: 'New'       },
-  { source: 'WhatsApp',     status: 'Contacted' },
-  { source: 'Website',      status: 'Closed'    },
-  { source: 'JustDial',     status: 'New'       },
-  { source: 'Social Media', status: 'Contacted' },
-  { source: 'IndiaMart',    status: 'New'       },
-  { source: 'Website',      status: 'Closed'    },
-  { source: 'WhatsApp',     status: 'New'       },
-  { source: 'Social Media', status: 'Contacted' },
-  { source: 'JustDial',     status: 'New'       },
+  { source: 'IndiaMart',    status: 'New'            },
+  { source: 'WhatsApp',     status: 'Interested'     },
+  { source: 'Website',      status: 'Closed'         },
+  { source: 'JustDial',     status: 'New'            },
+  { source: 'Social Media', status: 'Interested'     },
+  { source: 'IndiaMart',    status: 'New'            },
+  { source: 'Website',      status: 'Closed'         },
+  { source: 'WhatsApp',     status: 'Demo Scheduled' },
+  { source: 'Social Media', status: 'Interested'     },
+  { source: 'JustDial',     status: 'New'            },
 ];
 
 // ─── Source palette ───────────────────────────────────────────────────────────
@@ -63,11 +63,12 @@ function buildSourceData(leads: Lead[]) {
 }
 
 function buildStatusData(leads: Lead[]) {
-  const order: LeadStatus[] = ['New', 'Contacted', 'Closed'];
+  const order: LeadStatus[] = ['New', 'Interested', 'Demo Scheduled', 'Closed'];
   const colors: Record<LeadStatus, string> = {
-    New:       '#3b82f6',
-    Contacted: '#f59e0b',
-    Closed:    '#10b981',
+    New:             '#3b82f6',
+    Interested:      '#f59e0b',
+    'Demo Scheduled':'#8b5cf6',
+    Closed:          '#10b981',
   };
   const counts: Partial<Record<LeadStatus, number>> = {};
   leads.forEach(l => { counts[l.status] = (counts[l.status] ?? 0) + 1; });
@@ -129,15 +130,15 @@ export default function AnalyticsPage() {
 
   const totalLeads   = LEADS.length;
   const newLeads     = LEADS.filter(l => l.status === 'New').length;
-  const contacted    = LEADS.filter(l => l.status === 'Contacted').length;
+  const inPipeline   = LEADS.filter(l => l.status === 'Interested' || l.status === 'Demo Scheduled').length;
   const closed       = LEADS.filter(l => l.status === 'Closed').length;
   const convRate     = Math.round((closed / totalLeads) * 100);
 
   const summaryCards = [
-    { label: 'Total Leads',      value: totalLeads, sub: 'All sources',          icon: Users,       color: 'text-primary'       },
-    { label: 'New Leads',        value: newLeads,   sub: 'Awaiting contact',     icon: TrendingUp,  color: 'text-blue-600'      },
-    { label: 'Contacted',        value: contacted,  sub: 'Follow-up in progress', icon: Clock,       color: 'text-amber-600'     },
-    { label: 'Conversion Rate',  value: `${convRate}%`, sub: `${closed} closed`, icon: CheckCircle, color: 'text-emerald-600'   },
+    { label: 'Total Leads',      value: totalLeads,       sub: 'All sources',            icon: Users,       color: 'text-primary'     },
+    { label: 'New Leads',        value: newLeads,         sub: 'Awaiting contact',       icon: TrendingUp,  color: 'text-blue-600'    },
+    { label: 'In Pipeline',      value: inPipeline,       sub: 'Interested / Demo booked', icon: Clock,     color: 'text-amber-600'   },
+    { label: 'Conversion Rate',  value: `${convRate}%`,  sub: `${closed} closed`,       icon: CheckCircle, color: 'text-emerald-600' },
   ];
 
   return (

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { clsx } from 'clsx';
 import { Plus, Download, FileText, X, Receipt, ShieldAlert } from 'lucide-react';
-import { useUser } from '@/contexts/UserContext';
+import { useAuth } from '@/contexts/AuthContext';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -172,7 +172,7 @@ function SummaryCards({ invoices }: { invoices: Invoice[] }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function InvoicePage() {
-  const { isTelecaller } = useUser();
+  const { isTelecaller } = useAuth();
   const [invoices, setInvoices] = useState<Invoice[]>(INITIAL_INVOICES);
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm]           = useState<InvoiceForm>(EMPTY_FORM);

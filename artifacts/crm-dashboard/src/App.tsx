@@ -2,7 +2,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { AuthProvider } from '@/contexts/AuthContext';
+import { LeadsProvider } from '@/contexts/LeadsContext';
+import { TasksProvider } from '@/contexts/TasksContext';
+import ProtectedRoute from '@/components/ProtectedRoute';
 import DashboardLayout from '@/components/layout/DashboardLayout';
+import LoginPage from '@/pages/LoginPage';
 import Dashboard from '@/pages/Dashboard';
 import LeadsPage from '@/pages/LeadsPage';
 import TelecallerPage from '@/pages/TelecallerPage';
@@ -13,10 +18,8 @@ import AnalyticsPage from '@/pages/AnalyticsPage';
 import PipelineView from '@/pages/PipelineView';
 import ProposalPage from '@/pages/ProposalPage';
 import TasksPage from '@/pages/TasksPage';
+import AdminPage from '@/pages/AdminPage';
 import NotFound from '@/pages/not-found';
-import { LeadsProvider } from '@/contexts/LeadsContext';
-import { TasksProvider } from '@/contexts/TasksContext';
-import { UserProvider } from '@/contexts/UserContext';
 
 const queryClient = new QueryClient();
 
@@ -24,30 +27,46 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <UserProvider>
+        {/* AuthProvider must wrap everything so useAuth() works in ProtectedRoute */}
+        <AuthProvider>
           <LeadsProvider>
             <TasksProvider>
               <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, '')}>
                 <Routes>
-                  <Route element={<DashboardLayout />}>
-                    <Route path="/"           element={<Dashboard />} />
-                    <Route path="/leads"      element={<LeadsPage />} />
-                    <Route path="/pipeline"   element={<PipelineView />} />
-                    <Route path="/telecaller" element={<TelecallerPage />} />
-                    <Route path="/whatsapp"   element={<WhatsAppPage />} />
-                    <Route path="/social-media" element={<SocialMediaPage />} />
-                    <Route path="/analytics"  element={<AnalyticsPage />} />
-                    <Route path="/invoices"   element={<InvoicePage />} />
-                    <Route path="/proposals"  element={<ProposalPage />} />
-                    <Route path="/tasks"      element={<TasksPage />} />
+
+                  {/* ── Public ───────────────────────────────────────────── */}
+                  <Route path="/login" element={<LoginPage />} />
+
+                  {/* ── Protected: any authenticated user ────────────────── */}
+                  <Route element={<ProtectedRoute />}>
+                    <Route element={<DashboardLayout />}>
+                      <Route path="/"            element={<Dashboard />}     />
+                      <Route path="/leads"        element={<LeadsPage />}     />
+                      <Route path="/pipeline"     element={<PipelineView />}  />
+                      <Route path="/telecaller"   element={<TelecallerPage />}/>
+                      <Route path="/tasks"        element={<TasksPage />}     />
+                      <Route path="/proposals"    element={<ProposalPage />}  />
+                      <Route path="/whatsapp"     element={<WhatsAppPage />}  />
+                      <Route path="/social-media" element={<SocialMediaPage />}/>
+
+                      {/* ── Admin only ─────────────────────────────────── */}
+                      <Route element={<ProtectedRoute adminOnly />}>
+                        <Route path="/analytics"    element={<AnalyticsPage />} />
+                        <Route path="/invoices"     element={<InvoicePage />}   />
+                        <Route path="/admin"        element={<AdminPage />}     />
+                      </Route>
+                    </Route>
                   </Route>
+
+                  {/* ── 404 ──────────────────────────────────────────────── */}
                   <Route path="*" element={<NotFound />} />
+
                 </Routes>
               </BrowserRouter>
               <Toaster />
             </TasksProvider>
           </LeadsProvider>
-        </UserProvider>
+        </AuthProvider>
       </TooltipProvider>
     </QueryClientProvider>
   );
