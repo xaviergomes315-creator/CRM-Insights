@@ -2,7 +2,8 @@ import { DndContext, type DragEndEvent, useDroppable, useDraggable } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 import { clsx } from 'clsx';
 import { Phone, AlertCircle, MessageCircle } from 'lucide-react';
-import { useLeads, type Lead, type LeadStatus, isIdleLead, getDripWhatsAppUrl } from '@/contexts/LeadsContext';
+import { useLeads, type Lead, type LeadStatus, isIdleLead } from '@/contexts/LeadsContext';
+import { useWhatsApp } from '@/hooks/useWhatsApp';
 import { useAuth, maskPhone } from '@/contexts/AuthContext';
 
 // ─── Column config ────────────────────────────────────────────────────────────
@@ -20,6 +21,7 @@ const COLUMN_CONFIG: Record<LeadStatus, { header: string; dot: string; empty: st
 
 function KanbanCard({ lead }: { lead: Lead }) {
   const { isTelecaller } = useAuth();
+  const { sendDrip } = useWhatsApp();
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({ id: lead.id });
 
@@ -71,16 +73,14 @@ function KanbanCard({ lead }: { lead: Lead }) {
 
         {/* Send Drip — visible for idle leads regardless of role */}
         {idle && (
-          <a
-            href={getDripWhatsAppUrl(lead)}
-            target="_blank"
-            rel="noopener noreferrer"
+          <button
             onPointerDown={e => e.stopPropagation()}
+            onClick={e => { e.stopPropagation(); sendDrip(lead); }}
             className="flex items-center gap-1.5 text-xs font-medium text-[#128C7E] bg-[#25D366]/10 hover:bg-[#25D366]/20 border border-[#25D366]/30 rounded-md px-2 py-1 transition-colors min-h-[28px] w-full"
           >
             <MessageCircle className="h-3 w-3 flex-shrink-0" />
             Send Drip Message
-          </a>
+          </button>
         )}
       </div>
     </div>

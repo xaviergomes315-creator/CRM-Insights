@@ -21,6 +21,7 @@ import TasksPage from '@/pages/TasksPage';
 import AdminPage from '@/pages/AdminPage';
 import ClientPortal from '@/pages/ClientPortal';
 import Integrations from '@/pages/Integrations';
+import PublicLeadForm from '@/pages/PublicLeadForm';
 import NotFound from '@/pages/not-found';
 
 const queryClient = new QueryClient();
@@ -36,8 +37,10 @@ function App() {
               <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, '')}>
                 <Routes>
 
-                  {/* ── Public ───────────────────────────────────────────── */}
-                  <Route path="/login" element={<LoginPage />} />
+                  {/* ── Public (no auth required) ────────────────────────── */}
+                  <Route path="/login"            element={<LoginPage />}      />
+                  {/* Embeddable lead form — must stay OUTSIDE ProtectedRoute */}
+                  <Route path="/embed/lead-form"  element={<PublicLeadForm />} />
 
                   {/* ── Protected: any authenticated user ────────────────── */}
                   <Route element={<ProtectedRoute />}>

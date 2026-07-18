@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { clsx } from 'clsx';
 import { Plus, Pencil, Trash2, X, Filter, AlertCircle, MessageCircle } from 'lucide-react';
-import { useLeads, type LeadSource, type LeadStatus, type Lead, isIdleLead, getDripWhatsAppUrl } from '@/contexts/LeadsContext';
+import { useLeads, type LeadSource, type LeadStatus, type Lead, isIdleLead } from '@/contexts/LeadsContext';
+import { useWhatsApp } from '@/hooks/useWhatsApp';
 import { useAuth, maskPhone } from '@/contexts/AuthContext';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -34,6 +35,7 @@ const EMPTY_FORM: LeadForm = { name: '', email: '', phone: '', status: 'New', so
 export default function LeadsPage() {
   const { leads, addLead, updateLead, deleteLead } = useLeads();
   const { isTelecaller } = useAuth();
+  const { sendDrip } = useWhatsApp();
 
   const [modalOpen, setModalOpen]       = useState(false);
   const [editingLead, setEditingLead]   = useState<Lead | null>(null);
@@ -237,15 +239,13 @@ export default function LeadsPage() {
                         <div className="flex items-center justify-end gap-2 flex-wrap">
                           {/* Send Drip — shown for idle leads (all roles can send messages) */}
                           {idle && (
-                            <a
-                              href={getDripWhatsAppUrl(lead)}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                            <button
+                              onClick={() => sendDrip(lead)}
                               className="inline-flex items-center gap-1.5 rounded-lg bg-[#25D366]/10 border border-[#25D366]/30 px-3 py-2 text-xs font-medium text-[#128C7E] hover:bg-[#25D366]/20 transition-colors min-h-[36px] whitespace-nowrap"
                             >
                               <MessageCircle className="h-3 w-3" />
                               Send Drip
-                            </a>
+                            </button>
                           )}
 
                           {/* Edit / Delete — Admin only */}
