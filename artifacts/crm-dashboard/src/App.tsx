@@ -16,6 +16,7 @@ import TasksPage from '@/pages/TasksPage';
 import NotFound from '@/pages/not-found';
 import { LeadsProvider } from '@/contexts/LeadsContext';
 import { TasksProvider } from '@/contexts/TasksContext';
+import { UserProvider } from '@/contexts/UserContext';
 
 const queryClient = new QueryClient();
 
@@ -23,28 +24,30 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <LeadsProvider>
-          <TasksProvider>
-            <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, '')}>
-              <Routes>
-                <Route element={<DashboardLayout />}>
-                  <Route path="/"          element={<Dashboard />} />
-                  <Route path="/leads"     element={<LeadsPage />} />
-                  <Route path="/pipeline"  element={<PipelineView />} />
-                  <Route path="/telecaller"element={<TelecallerPage />} />
-                  <Route path="/whatsapp"  element={<WhatsAppPage />} />
-                  <Route path="/social-media" element={<SocialMediaPage />} />
-                  <Route path="/analytics" element={<AnalyticsPage />} />
-                  <Route path="/invoices"  element={<InvoicePage />} />
-                  <Route path="/proposals" element={<ProposalPage />} />
-                  <Route path="/tasks"     element={<TasksPage />} />
-                </Route>
-                <Route path="*" element={<NotFound />} />
-              </Routes>
-            </BrowserRouter>
-            <Toaster />
-          </TasksProvider>
-        </LeadsProvider>
+        <UserProvider>
+          <LeadsProvider>
+            <TasksProvider>
+              <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, '')}>
+                <Routes>
+                  <Route element={<DashboardLayout />}>
+                    <Route path="/"           element={<Dashboard />} />
+                    <Route path="/leads"      element={<LeadsPage />} />
+                    <Route path="/pipeline"   element={<PipelineView />} />
+                    <Route path="/telecaller" element={<TelecallerPage />} />
+                    <Route path="/whatsapp"   element={<WhatsAppPage />} />
+                    <Route path="/social-media" element={<SocialMediaPage />} />
+                    <Route path="/analytics"  element={<AnalyticsPage />} />
+                    <Route path="/invoices"   element={<InvoicePage />} />
+                    <Route path="/proposals"  element={<ProposalPage />} />
+                    <Route path="/tasks"      element={<TasksPage />} />
+                  </Route>
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </BrowserRouter>
+              <Toaster />
+            </TasksProvider>
+          </LeadsProvider>
+        </UserProvider>
       </TooltipProvider>
     </QueryClientProvider>
   );

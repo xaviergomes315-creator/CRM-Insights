@@ -55,6 +55,20 @@ export default defineConfig({
     fs: {
       strict: true,
     },
+    // Proxy /api → API server so the browser never needs to reach port 8080 directly.
+    // SSE (text/event-stream) works through Vite's http-proxy without extra config.
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+        // Disable response buffering so SSE chunks flush immediately
+        configure: (proxy) => {
+          proxy.on('proxyRes', (_proxyRes, _req, res) => {
+            res.setHeader('X-Accel-Buffering', 'no');
+          });
+        },
+      },
+    },
   },
   preview: {
     port,

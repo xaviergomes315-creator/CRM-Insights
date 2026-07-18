@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { clsx } from 'clsx';
-import { Plus, Pencil, Trash2, X, Filter } from 'lucide-react';
-import { useLeads, type LeadSource, type LeadStatus, type Lead } from '@/contexts/LeadsContext';
+import { Plus, Pencil, Trash2, X, Filter, AlertCircle, MessageCircle } from 'lucide-react';
+import { useLeads, type LeadSource, type LeadStatus, type Lead, isIdleLead, getDripWhatsAppUrl } from '@/contexts/LeadsContext';
+import { useUser, maskPhone } from '@/contexts/UserContext';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -28,13 +29,16 @@ type LeadForm = { name: string; email: string; phone: string; status: LeadStatus
 type LeadFormErrors = Partial<Record<keyof LeadForm, string>>;
 const EMPTY_FORM: LeadForm = { name: '', email: '', phone: '', status: 'New', source: '' };
 
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
 export default function LeadsPage() {
   const { leads, addLead, updateLead, deleteLead } = useLeads();
+  const { isTelecaller } = useUser();
 
-  const [modalOpen, setModalOpen]     = useState(false);
-  const [editingLead, setEditingLead] = useState<Lead | null>(null);
-  const [form, setForm]               = useState<LeadForm>(EMPTY_FORM);
-  const [errors, setErrors]           = useState<LeadFormErrors>({});
+  const [modalOpen, setModalOpen]       = useState(false);
+  const [editingLead, setEditingLead]   = useState<Lead | null>(null);
+  const [form, setForm]                 = useState<LeadForm>(EMPTY_FORM);
+  const [errors, setErrors]             = useState<LeadFormErrors>({});
   const [sourceFilter, setSourceFilter] = useState<LeadSource | 'All'>('All');
 
   const filteredLeads = sourceFilter === 'All'
@@ -83,9 +87,9 @@ export default function LeadsPage() {
 
     if (editingLead) {
       updateLead(editingLead.id, {
-        name: form.name.trim(),
-        email: form.email.trim(),
-        phone: form.phone.trim(),
+        name:   form.name.trim(),
+        email:  form.email.trim(),
+        phone:  form.phone.trim(),
         source: form.source as LeadSource,
         status: form.status,
       });
@@ -115,13 +119,16 @@ export default function LeadsPage() {
             )}
           </p>
         </div>
-        <button
-          onClick={openAddModal}
-          className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-5 py-3 text-sm font-medium text-primary-foreground shadow-sm hover:opacity-90 transition-opacity min-h-[44px] sm:min-h-0 sm:py-2.5"
-        >
-          <Plus className="h-4 w-4" />
-          Add New Lead
-        </button>
+        {/* Add button — hidden for Telecaller (data entry is an Admin-only action) */}
+        {!isTelecaller && (
+          <button
+            onClick={openAddModal}
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-5 py-3 text-sm font-medium text-primary-foreground shadow-sm hover:opacity-90 transition-opacity min-h-[44px] sm:min-h-0 sm:py-2.5"
+          >
+            <Plus className="h-4 w-4" />
+            Add New Lead
+          </button>
+        )}
       </div>
 
       {/* Source filter bar */}
@@ -146,10 +153,20 @@ export default function LeadsPage() {
         ))}
       </div>
 
+      {/* Telecaller data-protection notice */}
+      {isTelecaller && (
+        <div className="mb-4 flex items-center gap-2 rounded-lg bg-amber-50 border border-amber-200 px-4 py-2.5 text-xs text-amber-700">
+          <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+          <span>
+            <strong>Data Protection Active:</strong> Phone numbers are masked and export features are disabled for your role.
+          </span>
+        </div>
+      )}
+
       {/* Table — horizontally scrollable on mobile */}
       <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[600px] text-sm">
+          <table className="w-full min-w-[620px] text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/40">
                 <th className="px-5 py-3.5 text-left font-semibold text-muted-foreground tracking-wide text-xs uppercase">Name</th>
@@ -170,47 +187,91 @@ export default function LeadsPage() {
                   </td>
                 </tr>
               ) : (
-                filteredLeads.map((lead, idx) => (
-                  <tr
-                    key={lead.id}
-                    className={clsx(
-                      'border-b border-border last:border-0 transition-colors hover:bg-muted/30',
-                      idx % 2 === 0 ? 'bg-card' : 'bg-muted/10',
-                    )}
-                  >
-                    <td className="px-5 py-4 font-medium text-foreground whitespace-nowrap">{lead.name}</td>
-                    <td className="px-5 py-4 text-muted-foreground whitespace-nowrap">{lead.email}</td>
-                    <td className="px-5 py-4 text-muted-foreground whitespace-nowrap">{lead.phone}</td>
-                    <td className="px-5 py-4 whitespace-nowrap">
-                      <span className={clsx('inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold', SOURCE_STYLES[lead.source])}>
-                        {lead.source}
-                      </span>
-                    </td>
-                    <td className="px-5 py-4 whitespace-nowrap">
-                      <span className={clsx('inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold', STATUS_STYLES[lead.status])}>
-                        {lead.status}
-                      </span>
-                    </td>
-                    <td className="px-5 py-4">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => openEditModal(lead)}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium text-foreground hover:bg-muted transition-colors min-h-[36px]"
-                        >
-                          <Pencil className="h-3 w-3" />
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => deleteLead(lead.id)}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors min-h-[36px]"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                          Delete
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                filteredLeads.map((lead, idx) => {
+                  const idle = isIdleLead(lead);
+                  return (
+                    <tr
+                      key={lead.id}
+                      className={clsx(
+                        'border-b border-border last:border-0 transition-colors hover:bg-muted/30',
+                        idle ? 'bg-red-50/40' : idx % 2 === 0 ? 'bg-card' : 'bg-muted/10',
+                      )}
+                    >
+                      {/* Name + Urgent Follow-up badge */}
+                      <td className="px-5 py-4 whitespace-nowrap">
+                        <div>
+                          <span className="font-medium text-foreground">{lead.name}</span>
+                          {idle && (
+                            <div className="mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold bg-red-100 text-red-600 border border-red-200">
+                              <AlertCircle className="h-3 w-3 flex-shrink-0" />
+                              Urgent Follow-up
+                            </div>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Email */}
+                      <td className="px-5 py-4 text-muted-foreground whitespace-nowrap">{lead.email}</td>
+
+                      {/* Phone — masked for Telecaller */}
+                      <td className="px-5 py-4 text-muted-foreground whitespace-nowrap font-mono text-xs">
+                        {isTelecaller ? maskPhone(lead.phone) : lead.phone}
+                      </td>
+
+                      {/* Source */}
+                      <td className="px-5 py-4 whitespace-nowrap">
+                        <span className={clsx('inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold', SOURCE_STYLES[lead.source])}>
+                          {lead.source}
+                        </span>
+                      </td>
+
+                      {/* Status */}
+                      <td className="px-5 py-4 whitespace-nowrap">
+                        <span className={clsx('inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold', STATUS_STYLES[lead.status])}>
+                          {lead.status}
+                        </span>
+                      </td>
+
+                      {/* Actions */}
+                      <td className="px-5 py-4">
+                        <div className="flex items-center justify-end gap-2 flex-wrap">
+                          {/* Send Drip — shown for idle leads (all roles can send messages) */}
+                          {idle && (
+                            <a
+                              href={getDripWhatsAppUrl(lead)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1.5 rounded-lg bg-[#25D366]/10 border border-[#25D366]/30 px-3 py-2 text-xs font-medium text-[#128C7E] hover:bg-[#25D366]/20 transition-colors min-h-[36px] whitespace-nowrap"
+                            >
+                              <MessageCircle className="h-3 w-3" />
+                              Send Drip
+                            </a>
+                          )}
+
+                          {/* Edit / Delete — Admin only */}
+                          {!isTelecaller && (
+                            <>
+                              <button
+                                onClick={() => openEditModal(lead)}
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium text-foreground hover:bg-muted transition-colors min-h-[36px]"
+                              >
+                                <Pencil className="h-3 w-3" />
+                                Edit
+                              </button>
+                              <button
+                                onClick={() => deleteLead(lead.id)}
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors min-h-[36px]"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                                Delete
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -218,7 +279,7 @@ export default function LeadsPage() {
       </div>
 
       {/* Add / Edit Modal */}
-      {modalOpen && (
+      {modalOpen && !isTelecaller && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={closeModal} />
 

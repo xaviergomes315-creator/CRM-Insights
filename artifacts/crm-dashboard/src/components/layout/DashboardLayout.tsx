@@ -18,25 +18,29 @@ import {
   X,
   Kanban,
   ClipboardList,
+  ShieldCheck,
+  ShieldAlert,
 } from 'lucide-react';
+import { useUser } from '@/contexts/UserContext';
 
 const navItems = [
-  { to: '/',            label: 'Dashboard',    icon: LayoutDashboard, exact: true  },
-  { to: '/leads',       label: 'CRM Leads',    icon: Users,           exact: false },
-  { to: '/pipeline',    label: 'Pipeline',     icon: Kanban,          exact: false },
-  { to: '/telecaller',  label: 'Telecaller',   icon: PhoneCall,       exact: false },
-  { to: '/tasks',       label: 'Tasks',        icon: ClipboardList,   exact: false },
-  { to: '/proposals',   label: 'Proposals',    icon: FileText,        exact: false },
-  { to: '/whatsapp',    label: 'WhatsApp',     icon: MessageCircle,   exact: false },
-  { to: '/social-media',label: 'Social Media', icon: CalendarDays,    exact: false },
-  { to: '/analytics',   label: 'Analytics',    icon: BarChart2,       exact: false },
-  { to: '/invoices',    label: 'Invoices',     icon: FileText,        exact: false },
-  { to: '/client-portal',label:'Client Portal',icon: Globe,           exact: false },
+  { to: '/',             label: 'Dashboard',    icon: LayoutDashboard, exact: true  },
+  { to: '/leads',        label: 'CRM Leads',    icon: Users,           exact: false },
+  { to: '/pipeline',     label: 'Pipeline',     icon: Kanban,          exact: false },
+  { to: '/telecaller',   label: 'Telecaller',   icon: PhoneCall,       exact: false },
+  { to: '/tasks',        label: 'Tasks',        icon: ClipboardList,   exact: false },
+  { to: '/proposals',    label: 'Proposals',    icon: FileText,        exact: false },
+  { to: '/whatsapp',     label: 'WhatsApp',     icon: MessageCircle,   exact: false },
+  { to: '/social-media', label: 'Social Media', icon: CalendarDays,    exact: false },
+  { to: '/analytics',    label: 'Analytics',    icon: BarChart2,       exact: false },
+  { to: '/invoices',     label: 'Invoices',     icon: FileText,        exact: false },
+  { to: '/client-portal',label: 'Client Portal',icon: Globe,           exact: false },
 ];
 
 export default function DashboardLayout() {
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { role, setRole, isTelecaller } = useUser();
 
   // Close sidebar on route change (mobile nav)
   useEffect(() => {
@@ -72,12 +76,9 @@ export default function DashboardLayout() {
       {/* ── Sidebar ───────────────────────────────────────────────────────── */}
       <aside
         className={clsx(
-          // Base
           'flex w-64 flex-col bg-sidebar border-r border-sidebar-border flex-shrink-0',
-          // Mobile: fixed drawer that slides in/out
           'fixed inset-y-0 left-0 z-30 transition-transform duration-300 ease-in-out',
           sidebarOpen ? 'translate-x-0' : '-translate-x-full',
-          // Desktop: always visible, relative in flow
           'md:relative md:translate-x-0 md:transition-none',
         )}
       >
@@ -90,7 +91,6 @@ export default function DashboardLayout() {
             <p className="text-sm font-bold text-sidebar-foreground leading-tight">CRM Pro</p>
             <p className="text-xs text-sidebar-foreground/50">Business Suite</p>
           </div>
-          {/* Close button — mobile only */}
           <button
             onClick={() => setSidebarOpen(false)}
             className="flex h-7 w-7 items-center justify-center rounded-lg text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors md:hidden"
@@ -138,10 +138,12 @@ export default function DashboardLayout() {
         <div className="px-4 py-4 border-t border-sidebar-border flex-shrink-0">
           <div className="flex items-center gap-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-sidebar-primary/20 text-sidebar-primary text-xs font-bold flex-shrink-0">
-              A
+              {isTelecaller ? 'T' : 'A'}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold text-sidebar-foreground truncate">Admin User</p>
+              <p className="text-xs font-semibold text-sidebar-foreground truncate">
+                {isTelecaller ? 'Telecaller' : 'Admin User'}
+              </p>
               <p className="text-xs text-sidebar-foreground/40 truncate">admin@company.com</p>
             </div>
           </div>
@@ -161,7 +163,7 @@ export default function DashboardLayout() {
             <Menu className="h-5 w-5" />
           </button>
 
-          {/* Search — hidden on small mobile */}
+          {/* Search */}
           <div className="hidden sm:flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 flex-1 max-w-xs">
             <Search className="h-4 w-4 text-muted-foreground flex-shrink-0" />
             <input
@@ -180,16 +182,45 @@ export default function DashboardLayout() {
             <button className="flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-muted transition-colors sm:hidden">
               <Search className="h-4 w-4" />
             </button>
+
+            {/* ── Role switcher ─────────────────────────────────────────── */}
+            <button
+              onClick={() => setRole(role === 'admin' ? 'telecaller' : 'admin')}
+              title={`Active role: ${role === 'admin' ? 'Admin' : 'Telecaller'}. Click to switch.`}
+              className={clsx(
+                'flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors min-h-[36px]',
+                isTelecaller
+                  ? 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100'
+                  : 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100',
+              )}
+            >
+              {isTelecaller
+                ? <ShieldAlert className="h-3.5 w-3.5 flex-shrink-0" />
+                : <ShieldCheck className="h-3.5 w-3.5 flex-shrink-0" />
+              }
+              <span className="hidden sm:inline">
+                {isTelecaller ? 'Telecaller' : 'Admin'}
+              </span>
+            </button>
+
             <button className="relative flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
               <Bell className="h-4 w-4" />
               <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-destructive" />
             </button>
+
             <div className="h-8 w-px bg-border hidden sm:block" />
             <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-bold flex-shrink-0">
-                A
+              <div className={clsx(
+                'flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold flex-shrink-0',
+                isTelecaller
+                  ? 'bg-amber-500 text-white'
+                  : 'bg-primary text-primary-foreground',
+              )}>
+                {isTelecaller ? 'T' : 'A'}
               </div>
-              <span className="text-sm font-medium text-foreground hidden sm:inline">Admin</span>
+              <span className="text-sm font-medium text-foreground hidden sm:inline">
+                {isTelecaller ? 'Telecaller' : 'Admin'}
+              </span>
             </div>
           </div>
         </header>

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { clsx } from 'clsx';
-import { Plus, Download, FileText, X, Receipt } from 'lucide-react';
+import { Plus, Download, FileText, X, Receipt, ShieldAlert } from 'lucide-react';
+import { useUser } from '@/contexts/UserContext';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -171,6 +172,7 @@ function SummaryCards({ invoices }: { invoices: Invoice[] }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function InvoicePage() {
+  const { isTelecaller } = useUser();
   const [invoices, setInvoices] = useState<Invoice[]>(INITIAL_INVOICES);
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm]           = useState<InvoiceForm>(EMPTY_FORM);
@@ -299,16 +301,26 @@ export default function InvoicePage() {
                         </span>
                       </td>
 
-                      {/* Download action */}
+                      {/* Download action — hidden for Telecaller role */}
                       <td className="px-5 py-4">
                         <div className="flex justify-end">
-                          <button
-                            onClick={() => downloadInvoicePdf(invoice)}
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium text-foreground hover:bg-muted transition-colors min-h-[36px] whitespace-nowrap"
-                          >
-                            <Download className="h-3 w-3" />
-                            Download PDF
-                          </button>
+                          {isTelecaller ? (
+                            <span
+                              title="Download disabled for Telecaller role"
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted/50 px-3 py-2 text-xs font-medium text-muted-foreground cursor-not-allowed select-none min-h-[36px] whitespace-nowrap"
+                            >
+                              <ShieldAlert className="h-3 w-3" />
+                              Restricted
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => downloadInvoicePdf(invoice)}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium text-foreground hover:bg-muted transition-colors min-h-[36px] whitespace-nowrap"
+                            >
+                              <Download className="h-3 w-3" />
+                              Download PDF
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
