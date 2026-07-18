@@ -6,9 +6,10 @@ import { useLeads, type LeadSource, type LeadStatus, type Lead } from '@/context
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const STATUS_STYLES: Record<LeadStatus, string> = {
-  New:       'bg-blue-100 text-blue-700 border border-blue-200',
-  Contacted: 'bg-amber-100 text-amber-700 border border-amber-200',
-  Closed:    'bg-emerald-100 text-emerald-700 border border-emerald-200',
+  New:              'bg-blue-100 text-blue-700 border border-blue-200',
+  Interested:       'bg-amber-100 text-amber-700 border border-amber-200',
+  'Demo Scheduled': 'bg-violet-100 text-violet-700 border border-violet-200',
+  Closed:           'bg-emerald-100 text-emerald-700 border border-emerald-200',
 };
 
 const SOURCE_STYLES: Record<LeadSource, string> = {
@@ -24,6 +25,7 @@ const LEAD_SOURCES: LeadSource[] = ['WhatsApp', 'Website', 'IndiaMart', 'JustDia
 // ─── Form type ────────────────────────────────────────────────────────────────
 
 type LeadForm = { name: string; email: string; phone: string; status: LeadStatus; source: LeadSource | '' };
+type LeadFormErrors = Partial<Record<keyof LeadForm, string>>;
 const EMPTY_FORM: LeadForm = { name: '', email: '', phone: '', status: 'New', source: '' };
 
 export default function LeadsPage() {
@@ -32,7 +34,7 @@ export default function LeadsPage() {
   const [modalOpen, setModalOpen]     = useState(false);
   const [editingLead, setEditingLead] = useState<Lead | null>(null);
   const [form, setForm]               = useState<LeadForm>(EMPTY_FORM);
-  const [errors, setErrors]           = useState<Partial<LeadForm>>({});
+  const [errors, setErrors]           = useState<LeadFormErrors>({});
   const [sourceFilter, setSourceFilter] = useState<LeadSource | 'All'>('All');
 
   const filteredLeads = sourceFilter === 'All'
@@ -65,7 +67,7 @@ export default function LeadsPage() {
   // ── Validation ─────────────────────────────────────────────────────────────
 
   const validate = () => {
-    const e: Partial<LeadForm> = {};
+    const e: LeadFormErrors = {};
     if (!form.name.trim())  e.name   = 'Name is required';
     if (!form.email.trim()) e.email  = 'Email is required';
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) e.email = 'Invalid email address';
@@ -329,7 +331,8 @@ export default function LeadsPage() {
                       className="w-full rounded-lg border border-border bg-background px-3 py-3 text-sm text-foreground outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/30"
                     >
                       <option value="New">New</option>
-                      <option value="Contacted">Contacted</option>
+                      <option value="Interested">Interested</option>
+                      <option value="Demo Scheduled">Demo Scheduled</option>
                       <option value="Closed">Closed</option>
                     </select>
                   </div>

@@ -16,17 +16,22 @@ import {
   BarChart2,
   Menu,
   X,
+  Kanban,
+  ClipboardList,
 } from 'lucide-react';
 
 const navItems = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard, exact: true },
-  { to: '/leads', label: 'CRM Leads', icon: Users, exact: false },
-  { to: '/telecaller', label: 'Telecaller', icon: PhoneCall, exact: false },
-  { to: '/whatsapp', label: 'WhatsApp', icon: MessageCircle, exact: false },
-  { to: '/social-media', label: 'Social Media', icon: CalendarDays, exact: false },
-  { to: '/analytics', label: 'Analytics', icon: BarChart2, exact: false },
-  { to: '/invoices', label: 'Invoices', icon: FileText, exact: false },
-  { to: '/client-portal', label: 'Client Portal', icon: Globe, exact: false },
+  { to: '/',            label: 'Dashboard',    icon: LayoutDashboard, exact: true  },
+  { to: '/leads',       label: 'CRM Leads',    icon: Users,           exact: false },
+  { to: '/pipeline',    label: 'Pipeline',     icon: Kanban,          exact: false },
+  { to: '/telecaller',  label: 'Telecaller',   icon: PhoneCall,       exact: false },
+  { to: '/tasks',       label: 'Tasks',        icon: ClipboardList,   exact: false },
+  { to: '/proposals',   label: 'Proposals',    icon: FileText,        exact: false },
+  { to: '/whatsapp',    label: 'WhatsApp',     icon: MessageCircle,   exact: false },
+  { to: '/social-media',label: 'Social Media', icon: CalendarDays,    exact: false },
+  { to: '/analytics',   label: 'Analytics',    icon: BarChart2,       exact: false },
+  { to: '/invoices',    label: 'Invoices',     icon: FileText,        exact: false },
+  { to: '/client-portal',label:'Client Portal',icon: Globe,           exact: false },
 ];
 
 export default function DashboardLayout() {

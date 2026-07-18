@@ -3,7 +3,7 @@ import { createContext, useContext, useState, useCallback, type ReactNode } from
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export type LeadSource = 'WhatsApp' | 'Website' | 'IndiaMart' | 'JustDial' | 'Social Media';
-export type LeadStatus = 'New' | 'Contacted' | 'Closed';
+export type LeadStatus = 'New' | 'Interested' | 'Demo Scheduled' | 'Closed';
 
 export interface Lead {
   id: number;
@@ -36,14 +36,14 @@ const now = Date.now();
 
 const INITIAL_LEADS: Lead[] = [
   { id: 1,  name: 'Priya Sharma',  email: 'priya@example.com',  phone: '+91 98001 11111', status: 'New',       source: 'IndiaMart',    addedAt: now - 9 * 60000 },
-  { id: 2,  name: 'Rahul Mehta',   email: 'rahul@example.com',  phone: '+91 98001 22222', status: 'Contacted', source: 'WhatsApp',     addedAt: now - 8 * 60000 },
+  { id: 2,  name: 'Rahul Mehta',   email: 'rahul@example.com',  phone: '+91 98001 22222', status: 'Interested', source: 'WhatsApp',     addedAt: now - 8 * 60000 },
   { id: 3,  name: 'Anita Desai',   email: 'anita@example.com',  phone: '+91 98001 33333', status: 'Closed',    source: 'Website',      addedAt: now - 7 * 60000 },
   { id: 4,  name: 'Vikram Nair',   email: 'vikram@example.com', phone: '+91 98001 44444', status: 'New',       source: 'JustDial',     addedAt: now - 6 * 60000 },
-  { id: 5,  name: 'Sunita Patel',  email: 'sunita@example.com', phone: '+91 98001 55555', status: 'Contacted', source: 'Social Media', addedAt: now - 5 * 60000 },
+  { id: 5,  name: 'Sunita Patel',  email: 'sunita@example.com', phone: '+91 98001 55555', status: 'Interested', source: 'Social Media', addedAt: now - 5 * 60000 },
   { id: 6,  name: 'Deepak Kumar',  email: 'deepak@example.com', phone: '+91 98001 66666', status: 'New',       source: 'IndiaMart',    addedAt: now - 4 * 60000 },
   { id: 7,  name: 'Meena Joshi',   email: 'meena@example.com',  phone: '+91 98001 77777', status: 'Closed',    source: 'Website',      addedAt: now - 3 * 60000 },
   { id: 8,  name: 'Arjun Reddy',   email: 'arjun@example.com',  phone: '+91 98001 88888', status: 'New',       source: 'WhatsApp',     addedAt: now - 2 * 60000 },
-  { id: 9,  name: 'Kavita Singh',  email: 'kavita@example.com', phone: '+91 98001 99999', status: 'Contacted', source: 'Social Media', addedAt: now - 1 * 60000 },
+  { id: 9,  name: 'Kavita Singh',  email: 'kavita@example.com', phone: '+91 98001 99999', status: 'Demo Scheduled', source: 'Social Media', addedAt: now - 1 * 60000 },
   { id: 10, name: 'Rohit Verma',   email: 'rohit@example.com',  phone: '+91 98001 10101', status: 'New',       source: 'JustDial',     addedAt: now },
 ];
 
