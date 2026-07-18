@@ -1,20 +1,7 @@
 import { useState } from 'react';
 import { clsx } from 'clsx';
 import { Plus, Pencil, Trash2, X, Filter } from 'lucide-react';
-
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-type LeadStatus = 'New' | 'Contacted' | 'Closed';
-type LeadSource = 'WhatsApp' | 'Website' | 'IndiaMart' | 'JustDial' | 'Social Media';
-
-interface Lead {
-  id: number;
-  name: string;
-  email: string;
-  phone: string;
-  status: LeadStatus;
-  source: LeadSource;
-}
+import { useLeads, type LeadSource, type LeadStatus, type Lead } from '@/contexts/LeadsContext';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -34,28 +21,18 @@ const SOURCE_STYLES: Record<LeadSource, string> = {
 
 const LEAD_SOURCES: LeadSource[] = ['WhatsApp', 'Website', 'IndiaMart', 'JustDial', 'Social Media'];
 
-const INITIAL_LEADS: Lead[] = [
-  { id: 1, name: 'Priya Sharma',  email: 'priya@example.com',  phone: '+91 98001 11111', status: 'New',       source: 'IndiaMart'    },
-  { id: 2, name: 'Rahul Mehta',   email: 'rahul@example.com',  phone: '+91 98001 22222', status: 'Contacted', source: 'WhatsApp'     },
-  { id: 3, name: 'Anita Desai',   email: 'anita@example.com',  phone: '+91 98001 33333', status: 'Closed',    source: 'Website'      },
-  { id: 4, name: 'Vikram Nair',   email: 'vikram@example.com', phone: '+91 98001 44444', status: 'New',       source: 'JustDial'     },
-  { id: 5, name: 'Sunita Patel',  email: 'sunita@example.com', phone: '+91 98001 55555', status: 'Contacted', source: 'Social Media' },
-  { id: 6, name: 'Deepak Kumar',  email: 'deepak@example.com', phone: '+91 98001 66666', status: 'New',       source: 'IndiaMart'    },
-  { id: 7, name: 'Meena Joshi',   email: 'meena@example.com',  phone: '+91 98001 77777', status: 'Closed',    source: 'Website'      },
-  { id: 8, name: 'Arjun Reddy',   email: 'arjun@example.com',  phone: '+91 98001 88888', status: 'New',       source: 'WhatsApp'     },
-  { id: 9, name: 'Kavita Singh',  email: 'kavita@example.com', phone: '+91 98001 99999', status: 'Contacted', source: 'Social Media' },
-  { id:10, name: 'Rohit Verma',   email: 'rohit@example.com',  phone: '+91 98001 10101', status: 'New',       source: 'JustDial'     },
-];
+// ─── Form type ────────────────────────────────────────────────────────────────
 
-type EmptyForm = { name: string; email: string; phone: string; status: LeadStatus; source: LeadSource | '' };
-const EMPTY_FORM: EmptyForm = { name: '', email: '', phone: '', status: 'New', source: '' };
+type LeadForm = { name: string; email: string; phone: string; status: LeadStatus; source: LeadSource | '' };
+const EMPTY_FORM: LeadForm = { name: '', email: '', phone: '', status: 'New', source: '' };
 
 export default function LeadsPage() {
-  const [leads, setLeads]         = useState<Lead[]>(INITIAL_LEADS);
-  const [modalOpen, setModalOpen] = useState(false);
+  const { leads, addLead, updateLead, deleteLead } = useLeads();
+
+  const [modalOpen, setModalOpen]     = useState(false);
   const [editingLead, setEditingLead] = useState<Lead | null>(null);
-  const [form, setForm]           = useState<EmptyForm>(EMPTY_FORM);
-  const [errors, setErrors]       = useState<Partial<EmptyForm>>({});
+  const [form, setForm]               = useState<LeadForm>(EMPTY_FORM);
+  const [errors, setErrors]           = useState<Partial<LeadForm>>({});
   const [sourceFilter, setSourceFilter] = useState<LeadSource | 'All'>('All');
 
   const filteredLeads = sourceFilter === 'All'
@@ -88,11 +65,11 @@ export default function LeadsPage() {
   // ── Validation ─────────────────────────────────────────────────────────────
 
   const validate = () => {
-    const e: Partial<EmptyForm> = {};
-    if (!form.name.trim())  e.name  = 'Name is required';
-    if (!form.email.trim()) e.email = 'Email is required';
+    const e: Partial<LeadForm> = {};
+    if (!form.name.trim())  e.name   = 'Name is required';
+    if (!form.email.trim()) e.email  = 'Email is required';
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) e.email = 'Invalid email address';
-    if (!form.phone.trim()) e.phone = 'Phone is required';
+    if (!form.phone.trim()) e.phone  = 'Phone is required';
     if (!form.source)       e.source = 'Lead source is required';
     return e;
   };
@@ -103,18 +80,25 @@ export default function LeadsPage() {
     if (Object.keys(errs).length) { setErrors(errs); return; }
 
     if (editingLead) {
-      setLeads(prev => prev.map(l => l.id === editingLead.id
-        ? { ...l, ...form, source: form.source as LeadSource }
-        : l,
-      ));
+      // Editing: allow manual status change
+      updateLead(editingLead.id, {
+        name: form.name.trim(),
+        email: form.email.trim(),
+        phone: form.phone.trim(),
+        source: form.source as LeadSource,
+        status: form.status,
+      });
     } else {
-      const newId = Math.max(0, ...leads.map(l => l.id)) + 1;
-      setLeads(prev => [...prev, { id: newId, ...form, source: form.source as LeadSource }]);
+      // New lead → context enforces status = 'New' automatically
+      addLead({
+        name:   form.name.trim(),
+        email:  form.email.trim(),
+        phone:  form.phone.trim(),
+        source: form.source as LeadSource,
+      });
     }
     closeModal();
   };
-
-  const handleDelete = (id: number) => setLeads(prev => prev.filter(l => l.id !== id));
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -126,7 +110,9 @@ export default function LeadsPage() {
           <h1 className="text-2xl font-bold text-foreground">CRM Leads</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
             {filteredLeads.length} of {leads.length} lead{leads.length !== 1 ? 's' : ''}
-            {sourceFilter !== 'All' && <span className="ml-1">· filtered by <strong>{sourceFilter}</strong></span>}
+            {sourceFilter !== 'All' && (
+              <span className="ml-1">· filtered by <strong>{sourceFilter}</strong></span>
+            )}
           </p>
         </div>
         <button
@@ -214,7 +200,7 @@ export default function LeadsPage() {
                         Edit
                       </button>
                       <button
-                        onClick={() => handleDelete(lead.id)}
+                        onClick={() => deleteLead(lead.id)}
                         className="inline-flex items-center gap-1.5 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors"
                       >
                         <Trash2 className="h-3 w-3" />
@@ -229,7 +215,7 @@ export default function LeadsPage() {
         </table>
       </div>
 
-      {/* Modal */}
+      {/* Add / Edit Modal */}
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={closeModal} />
@@ -237,9 +223,17 @@ export default function LeadsPage() {
           <div className="relative z-10 w-full max-w-md rounded-2xl border border-border bg-card shadow-xl mx-4">
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-5 border-b border-border">
-              <h2 className="text-base font-semibold text-foreground">
-                {editingLead ? 'Edit Lead' : 'Add New Lead'}
-              </h2>
+              <div>
+                <h2 className="text-base font-semibold text-foreground">
+                  {editingLead ? 'Edit Lead' : 'Add New Lead'}
+                </h2>
+                {!editingLead && (
+                  <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
+                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    Automation: status will be set to <strong className="text-foreground ml-0.5">New</strong>
+                  </p>
+                )}
+              </div>
               <button
                 onClick={closeModal}
                 className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
@@ -306,7 +300,7 @@ export default function LeadsPage() {
                   {errors.phone && <p className="mt-1 text-xs text-destructive">{errors.phone}</p>}
                 </div>
 
-                {/* Lead Source — mandatory */}
+                {/* Lead Source */}
                 <div>
                   <label className="block text-xs font-semibold text-foreground mb-1.5">
                     Lead Source <span className="text-destructive">*</span>
@@ -325,19 +319,21 @@ export default function LeadsPage() {
                   {errors.source && <p className="mt-1 text-xs text-destructive">{errors.source}</p>}
                 </div>
 
-                {/* Status */}
-                <div>
-                  <label className="block text-xs font-semibold text-foreground mb-1.5">Status</label>
-                  <select
-                    value={form.status}
-                    onChange={e => setForm(f => ({ ...f, status: e.target.value as LeadStatus }))}
-                    className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm text-foreground outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/30"
-                  >
-                    <option value="New">New</option>
-                    <option value="Contacted">Contacted</option>
-                    <option value="Closed">Closed</option>
-                  </select>
-                </div>
+                {/* Status — only shown when editing */}
+                {editingLead && (
+                  <div>
+                    <label className="block text-xs font-semibold text-foreground mb-1.5">Status</label>
+                    <select
+                      value={form.status}
+                      onChange={e => setForm(f => ({ ...f, status: e.target.value as LeadStatus }))}
+                      className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm text-foreground outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/30"
+                    >
+                      <option value="New">New</option>
+                      <option value="Contacted">Contacted</option>
+                      <option value="Closed">Closed</option>
+                    </select>
+                  </div>
+                )}
               </div>
 
               {/* Footer */}

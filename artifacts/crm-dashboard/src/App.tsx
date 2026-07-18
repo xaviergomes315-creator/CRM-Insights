@@ -11,6 +11,7 @@ import WhatsAppPage from '@/pages/WhatsAppPage';
 import SocialMediaPage from '@/pages/SocialMediaPage';
 import AnalyticsPage from '@/pages/AnalyticsPage';
 import NotFound from '@/pages/not-found';
+import { LeadsProvider } from '@/contexts/LeadsContext';
 
 const queryClient = new QueryClient();
 
@@ -18,6 +19,7 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
+        <LeadsProvider>
         <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, '')}>
           <Routes>
             <Route element={<DashboardLayout />}>
@@ -33,6 +35,7 @@ function App() {
           </Routes>
         </BrowserRouter>
         <Toaster />
+        </LeadsProvider>
       </TooltipProvider>
     </QueryClientProvider>
   );
