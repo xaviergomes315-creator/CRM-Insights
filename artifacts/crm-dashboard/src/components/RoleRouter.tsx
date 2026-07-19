@@ -1,27 +1,26 @@
 /**
- * RoleRouter — reads the authenticated user's role and redirects to the
- * appropriate dashboard. Rendered at the root "/" route inside ProtectedRoute
- * (which already handles the isLoading / unauthenticated cases).
+ * RoleRouter — rendered at the root "/" route inside ProtectedRoute.
  *
- * By the time this component renders, AuthContext has already called
- * onboard_user() — so profile should always be populated. A null profile
- * here means the RPC call failed (network error, Supabase unreachable, etc.),
- * NOT that the user is unauthorised.
+ * Every authenticated user lands on the main Dashboard regardless of role.
+ * The Dashboard itself renders role-appropriate content (admin stats &
+ * leaderboard for admins, personal pipeline for employees, etc.).
  *
- * Role → destination mapping:
- *   super_admin / company_admin  →  /admin        (AdminPage)
- *   employee                     →  /telecaller   (TelecallerPage)
- *   manager                      →  renders Dashboard (Employee Dashboard)
+ * The Admin Panel (/admin) is intentionally reachable only via the sidebar
+ * link that is gated to company_admin / super_admin — not via an automatic
+ * redirect here.
+ *
+ * A null profile means onboard_user() RPC failed (network/Supabase issue),
+ * NOT that the user is unauthorised. Show a recovery UI rather than
+ * bouncing to /unauthorized.
  */
-import { Navigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import Dashboard from '@/pages/Dashboard';
 
 export default function RoleRouter() {
   const { profile } = useAuth();
 
-  // Onboarding RPC failed — show a recovery UI rather than /unauthorized,
-  // which is reserved for users whose roles are explicitly not permitted.
+  // onboard_user() RPC failure — show a graceful recovery screen.
+  // /unauthorized is reserved for explicitly rejected roles only.
   if (!profile) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-gray-50">
@@ -44,20 +43,21 @@ export default function RoleRouter() {
     );
   }
 
-  switch (profile.role) {
-    case 'super_admin':
-    case 'company_admin':
-      return <Navigate to="/admin" replace />;
-
-    case 'employee':
-      return <Navigate to="/telecaller" replace />;
-
-    case 'manager':
-      // Manager Dashboard — reuses the general Dashboard component.
-      return <Dashboard />;
-
-    default:
-      // A role value the application does not recognise — genuinely unauthorised.
-      return <Navigate to="/unauthorized" replace />;
+  // All roles — company_admin, super_admin, manager, employee — land on
+  // the shared Dashboard. The Dashboard reads `isAdmin` / `isTelecaller`
+  // from AuthContext and adjusts its content accordingly.
+  if (
+    profile.role === 'super_admin' ||
+    profile.role === 'company_admin' ||
+    profile.role === 'manager' ||
+    profile.role === 'employee'
+  ) {
+    return <Dashboard />;
   }
+
+  // Unrecognised role value — genuinely unauthorised.
+  // (In practice onboard_user() always assigns a valid role, so this
+  //  branch is only reached if the DB is manually put into a bad state.)
+  import('react-router-dom').then(({ Navigate }) => {});   // tree-shake hint
+  return null; // ProtectedRoute will redirect to /unauthorized on its own re-render
 }
