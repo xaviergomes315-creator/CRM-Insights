@@ -1,15 +1,8 @@
 import { useState, type FormEvent } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { clsx } from 'clsx';
-import { Building2, Eye, EyeOff, LogIn, ShieldCheck } from 'lucide-react';
+import { Building2, Eye, EyeOff, LogIn } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-
-// ─── Demo credentials shown on the page ──────────────────────────────────────
-
-const DEMO_ACCOUNTS = [
-  { email: 'admin@test.com',      password: 'admin123', role: 'Admin',      color: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
-  { email: 'telecaller@test.com', password: 'tele123',  role: 'Telecaller', color: 'bg-amber-50 border-amber-200 text-amber-700'       },
-] as const;
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
@@ -35,12 +28,6 @@ export default function LoginPage() {
     const result = await login(email, password);
     setLoading(false);
     if (!result.success) setError(result.error ?? 'Login failed.');
-  };
-
-  const fillDemo = (acc: (typeof DEMO_ACCOUNTS)[number]) => {
-    setEmail(acc.email);
-    setPassword(acc.password);
-    setError('');
   };
 
   return (
@@ -134,38 +121,6 @@ export default function LoginPage() {
               {loading ? 'Signing in…' : 'Sign In'}
             </button>
           </form>
-
-          {/* Divider */}
-          <div className="flex items-center gap-3">
-            <div className="flex-1 h-px bg-border" />
-            <span className="text-xs text-muted-foreground">Demo accounts</span>
-            <div className="flex-1 h-px bg-border" />
-          </div>
-
-          {/* Demo credential cards */}
-          <div className="grid grid-cols-2 gap-3">
-            {DEMO_ACCOUNTS.map(acc => (
-              <button
-                key={acc.email}
-                type="button"
-                onClick={() => fillDemo(acc)}
-                className={clsx(
-                  'flex flex-col items-start gap-1 rounded-xl border px-3 py-2.5 text-left transition-all hover:shadow-sm active:scale-[0.98]',
-                  acc.color,
-                )}
-              >
-                <div className="flex items-center gap-1.5">
-                  <ShieldCheck className="h-3 w-3 flex-shrink-0" />
-                  <span className="text-xs font-semibold">{acc.role}</span>
-                </div>
-                <span className="text-[11px] opacity-80 break-all">{acc.email}</span>
-                <span className="text-[11px] font-mono opacity-70">{acc.password}</span>
-              </button>
-            ))}
-          </div>
-          <p className="text-center text-xs text-muted-foreground">
-            Click a card to auto-fill credentials, then sign in.
-          </p>
         </div>
 
         <p className="text-center text-xs text-muted-foreground">
