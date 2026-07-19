@@ -1,7 +1,7 @@
 import { DndContext, type DragEndEvent, useDroppable, useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { clsx } from 'clsx';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Phone, AlertCircle, MessageCircle, Sparkles, Loader2, X, Copy, Check } from 'lucide-react';
 import { useLeads, type Lead, type LeadStatus, isIdleLead, TELECALLER_POOL } from '@/contexts/LeadsContext';
 import { useWhatsApp } from '@/hooks/useWhatsApp';
@@ -61,13 +61,13 @@ function AiDraftModal({ lead, onClose }: { lead: Lead; onClose: () => void }) {
   const [copied,  setCopied]  = useState(false);
   const { toast } = useToast();
 
-  useState(() => {
+  useEffect(() => {
     const t = setTimeout(() => {
       setMessage(generateAiDraft(lead));
       setStatus('ready');
     }, 1000);
     return () => clearTimeout(t);
-  });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCopy = async () => {
     try { await navigator.clipboard.writeText(message); } catch { /* ignore */ }

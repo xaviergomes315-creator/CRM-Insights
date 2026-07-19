@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { clsx } from 'clsx';
 import {
   Plus, Pencil, Trash2, X, Filter, AlertCircle, MessageCircle, Sparkles, Loader2, Copy, Check,
+  Database,
 } from 'lucide-react';
 import { useLeads, type LeadSource, type LeadStatus, type Lead, isIdleLead, TELECALLER_POOL } from '@/contexts/LeadsContext';
 import { useAuth, maskPhone } from '@/contexts/AuthContext';
@@ -214,7 +215,7 @@ function AiDraftModal({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function LeadsPage() {
-  const { leads, addLead, updateLead, deleteLead } = useLeads();
+  const { leads, addLead, updateLead, deleteLead, loading } = useLeads();
   const { user, isTelecaller, isAdmin } = useAuth();
   const { sendDrip } = useWhatsApp();
 
@@ -375,14 +376,28 @@ export default function LeadsPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredLeads.length === 0 ? (
+              {loading ? (
                 <tr>
-                  <td colSpan={isAdmin ? 7 : 6} className="px-5 py-12 text-center text-muted-foreground text-sm">
-                    {sourceFilter !== 'All'
-                      ? `No leads found from "${sourceFilter}".`
-                      : isTelecaller
-                        ? 'No leads are currently assigned to you.'
-                        : 'No leads yet. Click "Add New Lead" to get started.'}
+                  <td colSpan={isAdmin ? 7 : 6} className="px-5 py-14 text-center">
+                    <div className="flex flex-col items-center gap-3 text-muted-foreground">
+                      <Loader2 className="h-7 w-7 animate-spin text-primary/50" />
+                      <span className="text-sm">Loading leads from database…</span>
+                    </div>
+                  </td>
+                </tr>
+              ) : filteredLeads.length === 0 ? (
+                <tr>
+                  <td colSpan={isAdmin ? 7 : 6} className="px-5 py-12 text-center">
+                    <div className="flex flex-col items-center gap-3 text-muted-foreground">
+                      <Database className="h-8 w-8 opacity-20" />
+                      <span className="text-sm">
+                        {sourceFilter !== 'All'
+                          ? `No leads found from "${sourceFilter}".`
+                          : isTelecaller
+                            ? 'No leads are currently assigned to you.'
+                            : 'No leads yet. Click "Add New Lead" to get started.'}
+                      </span>
+                    </div>
                   </td>
                 </tr>
               ) : (

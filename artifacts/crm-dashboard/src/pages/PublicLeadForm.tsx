@@ -55,18 +55,13 @@ export default function PublicLeadForm() {
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify(form),
       });
-      // Treat any 2xx as success; also accept non-ok gracefully for demo
       if (res.ok || res.status === 201) {
         setStatus('success');
       } else {
-        // Try to continue — backend may not have the route yet; still show success
-        // for demo purposes to avoid blocking the UX.
-        setStatus('success');
+        setStatus('error');
       }
     } catch {
-      // Network error or CORS; show success anyway for embedded demo context.
-      // In production you'd want setStatus('error') here.
-      setStatus('success');
+      setStatus('error');
     }
   };
 

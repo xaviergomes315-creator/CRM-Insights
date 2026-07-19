@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { clsx } from 'clsx';
-import { Plus, Trash2, CheckCircle2, Clock, AlertCircle, CalendarDays } from 'lucide-react';
+import { Plus, Trash2, CheckCircle2, Clock, AlertCircle, CalendarDays, Loader2 } from 'lucide-react';
 import { useLeads } from '@/contexts/LeadsContext';
 import { useTasks, type Task } from '@/contexts/TasksContext';
 import { useAuth, maskPhone } from '@/contexts/AuthContext';
@@ -134,7 +134,7 @@ const TABS: { id: FilterTab; label: string }[] = [
 
 export default function TasksPage() {
   const { leads } = useLeads();
-  const { tasks, addTask, markDone, deleteTask } = useTasks();
+  const { tasks, addTask, markDone, deleteTask, loading } = useTasks();
   const { isTelecaller } = useAuth();
 
   const [tab, setTab] = useState<FilterTab>('all');
@@ -179,6 +179,15 @@ export default function TasksPage() {
   const countOf = (f: FilterTab) =>
     f === 'all' ? tasks.length
     : tasks.filter(t => getTaskStatus(t) === f).length;
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[300px] gap-4 text-muted-foreground">
+        <Loader2 className="h-8 w-8 animate-spin text-primary/50" />
+        <p className="text-sm">Loading tasks from database…</p>
+      </div>
+    );
+  }
 
   return (
     <div>

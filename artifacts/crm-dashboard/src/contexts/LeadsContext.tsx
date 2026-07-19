@@ -7,7 +7,9 @@ import {
   useRef,
   type ReactNode,
 } from 'react';
+import { toast } from 'sonner';
 import { MOCK_USERS } from '@/contexts/AuthContext';
+import { supabase, type LeadRow } from '@/lib/supabase';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -21,9 +23,9 @@ export interface Lead {
   phone:          string;
   status:         LeadStatus;
   source:         LeadSource;
-  assignedTo:     string;   // telecaller user id (from MOCK_USERS)
-  addedAt:        number;   // Unix ms — used by Live Feed sort
-  lastActivityAt: number;   // Unix ms — updated on every mutation; used for idle detection
+  assignedTo:     string;   // telecaller user id
+  addedAt:        number;   // Unix ms
+  lastActivityAt: number;   // Unix ms
 }
 
 // addLead callers never provide assignedTo — the context assigns via round-robin
@@ -32,16 +34,14 @@ type AddLeadData = Omit<Lead, 'id' | 'status' | 'addedAt' | 'lastActivityAt' | '
 interface LeadsContextType {
   leads:           Lead[];
   newArrivals:     Lead[];
-  addLead:         (data: AddLeadData) => void;
-  updateLead:      (id: number, data: Partial<Omit<Lead, 'id' | 'addedAt'>>) => void;
-  deleteLead:      (id: number) => void;
+  loading:         boolean;
+  addLead:         (data: AddLeadData) => Promise<void>;
+  updateLead:      (id: number, data: Partial<Omit<Lead, 'id' | 'addedAt'>>) => Promise<void>;
+  deleteLead:      (id: number) => Promise<void>;
   dismissArrivals: () => void;
 }
 
 // ─── Round-robin telecaller pool ─────────────────────────────────────────────
-//
-// Exported so Dashboard can build the leaderboard without duplicating the list.
-// Pulling directly from MOCK_USERS (data import, no context cycle).
 
 export const TELECALLER_POOL: { id: string; name: string }[] = MOCK_USERS
   .filter(u => u.role === 'Telecaller')
@@ -72,84 +72,163 @@ export function getDripWhatsAppUrl(lead: Lead): string {
   return `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
 }
 
-// ─── Seed data ────────────────────────────────────────────────────────────────
-//
-// Pre-assign round-robin so the demo is immediately meaningful:
-//   Odd seed index  → telecaller pool[0] (Ravi Kumar, id '2')
-//   Even seed index → telecaller pool[1] (Sunita Rao,  id '3')
+// ─── Row ↔ Lead mappers ───────────────────────────────────────────────────────
 
-function rrId(seedIdx: number): string {
-  return TELECALLER_POOL[seedIdx % TELECALLER_POOL.length].id;
+function rowToLead(row: LeadRow): Lead {
+  return {
+    id:             row.id,
+    name:           row.name,
+    email:          row.email,
+    phone:          row.phone,
+    status:         row.status  as LeadStatus,
+    source:         row.source  as LeadSource,
+    assignedTo:     row.assigned_to,
+    addedAt:        row.added_at,
+    lastActivityAt: row.last_activity_at,
+  };
 }
-
-const now  = Date.now();
-const IDLE = now - 50 * 60 * 60 * 1000; // 50 h ago → triggers "Urgent Follow-up"
-
-const INITIAL_LEADS: Lead[] = [
-  { id: 1,  name: 'Priya Sharma',  email: 'priya@example.com',  phone: '+91 98001 11111', status: 'New',            source: 'IndiaMart',    assignedTo: rrId(0), addedAt: now - 9 * 60000, lastActivityAt: IDLE              },
-  { id: 2,  name: 'Rahul Mehta',   email: 'rahul@example.com',  phone: '+91 98001 22222', status: 'Interested',     source: 'WhatsApp',     assignedTo: rrId(1), addedAt: now - 8 * 60000, lastActivityAt: now - 8 * 60000  },
-  { id: 3,  name: 'Anita Desai',   email: 'anita@example.com',  phone: '+91 98001 33333', status: 'Closed',         source: 'Website',      assignedTo: rrId(2), addedAt: now - 7 * 60000, lastActivityAt: now - 7 * 60000  },
-  { id: 4,  name: 'Vikram Nair',   email: 'vikram@example.com', phone: '+91 98001 44444', status: 'New',            source: 'JustDial',     assignedTo: rrId(3), addedAt: now - 6 * 60000, lastActivityAt: IDLE              },
-  { id: 5,  name: 'Sunita Patel',  email: 'sunita@example.com', phone: '+91 98001 55555', status: 'Interested',     source: 'Social Media', assignedTo: rrId(4), addedAt: now - 5 * 60000, lastActivityAt: IDLE              },
-  { id: 6,  name: 'Deepak Kumar',  email: 'deepak@example.com', phone: '+91 98001 66666', status: 'New',            source: 'IndiaMart',    assignedTo: rrId(5), addedAt: now - 4 * 60000, lastActivityAt: now - 4 * 60000  },
-  { id: 7,  name: 'Meena Joshi',   email: 'meena@example.com',  phone: '+91 98001 77777', status: 'Closed',         source: 'Website',      assignedTo: rrId(6), addedAt: now - 3 * 60000, lastActivityAt: now - 3 * 60000  },
-  { id: 8,  name: 'Arjun Reddy',   email: 'arjun@example.com',  phone: '+91 98001 88888', status: 'New',            source: 'WhatsApp',     assignedTo: rrId(7), addedAt: now - 2 * 60000, lastActivityAt: now - 2 * 60000  },
-  { id: 9,  name: 'Kavita Singh',  email: 'kavita@example.com', phone: '+91 98001 99999', status: 'Demo Scheduled', source: 'Social Media', assignedTo: rrId(8), addedAt: now - 1 * 60000, lastActivityAt: now - 1 * 60000  },
-  { id: 10, name: 'Rohit Verma',   email: 'rohit@example.com',  phone: '+91 98001 10101', status: 'New',            source: 'JustDial',     assignedTo: rrId(9), addedAt: now,             lastActivityAt: now               },
-];
 
 // ─── Context ──────────────────────────────────────────────────────────────────
 
 const LeadsContext = createContext<LeadsContextType | null>(null);
 
 export function LeadsProvider({ children }: { children: ReactNode }) {
-  const [leads, setLeads]             = useState<Lead[]>(INITIAL_LEADS);
+  const [leads, setLeads]             = useState<Lead[]>([]);
   const [newArrivals, setNewArrivals] = useState<Lead[]>([]);
+  const [loading, setLoading]         = useState(true);
 
-  // Track next-ID and round-robin index with refs so callbacks stay stable.
-  const nextIdRef  = useRef(INITIAL_LEADS.length + 1);
-  const rrIndexRef = useRef(INITIAL_LEADS.length % TELECALLER_POOL.length);
+  // Round-robin ref — initialised to 0, corrected after first DB load
+  const rrIndexRef = useRef(0);
 
-  const addLead = useCallback(
-    (data: AddLeadData) => {
-      const ts  = Date.now();
+  // ── Initial load ────────────────────────────────────────────────────────────
 
-      // Round-robin assignment — picks the next telecaller in the pool
-      const assignedTo = TELECALLER_POOL[rrIndexRef.current % TELECALLER_POOL.length].id;
-      rrIndexRef.current = (rrIndexRef.current + 1) % TELECALLER_POOL.length;
+  useEffect(() => {
+    let cancelled = false;
 
-      const newLead: Lead = {
-        ...data,
-        id:             nextIdRef.current++,
-        status:         'New',        // automation rule: always start at New
-        assignedTo,
-        addedAt:        ts,
-        lastActivityAt: ts,
-      };
-      setLeads(prev => [newLead, ...prev]);
-      setNewArrivals(prev => [newLead, ...prev]);
-    },
-    [], // intentionally empty — refs handle mutable state
-  );
+    async function load() {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('leads')
+        .select('*')
+        .order('added_at', { ascending: false });
+
+      if (cancelled) return;
+
+      if (error) {
+        console.error('[LeadsContext] initial load error', error);
+        toast.error('Could not load leads', { description: error.message });
+        setLoading(false);
+        return;
+      }
+
+      const loaded = (data as LeadRow[]).map(rowToLead);
+      setLeads(loaded);
+
+      // Seed the round-robin index from the real row count so new assignments
+      // continue where the database left off.
+      rrIndexRef.current = loaded.length % Math.max(TELECALLER_POOL.length, 1);
+
+      setLoading(false);
+    }
+
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
+  // ── CRUD ────────────────────────────────────────────────────────────────────
+
+  const addLead = useCallback(async (data: AddLeadData) => {
+    const ts = Date.now();
+
+    // Round-robin assignment
+    const poolSize   = Math.max(TELECALLER_POOL.length, 1);
+    const assignedTo = TELECALLER_POOL[rrIndexRef.current % poolSize]?.id ?? '';
+    rrIndexRef.current = (rrIndexRef.current + 1) % poolSize;
+
+    const row: Omit<LeadRow, 'id'> = {
+      name:             data.name,
+      email:            data.email,
+      phone:            data.phone,
+      status:           'New',
+      source:           data.source,
+      assigned_to:      assignedTo,
+      added_at:         ts,
+      last_activity_at: ts,
+    };
+
+    const { data: inserted, error } = await supabase
+      .from('leads')
+      .insert(row)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[LeadsContext] addLead error', error);
+      toast.error('Failed to add lead', { description: error.message });
+      return;
+    }
+
+    const newLead = rowToLead(inserted as LeadRow);
+    setLeads(prev => [newLead, ...prev]);
+    setNewArrivals(prev => [newLead, ...prev]);
+  }, []);
 
   const updateLead = useCallback(
-    (id: number, data: Partial<Omit<Lead, 'id' | 'addedAt'>>) => {
+    async (id: number, data: Partial<Omit<Lead, 'id' | 'addedAt'>>) => {
+      const now = Date.now();
+
+      // Build the snake_case patch object
+      const patch: Partial<LeadRow> & { last_activity_at: number } = {
+        last_activity_at: now,
+      };
+      if (data.name        !== undefined) patch.name             = data.name;
+      if (data.email       !== undefined) patch.email            = data.email;
+      if (data.phone       !== undefined) patch.phone            = data.phone;
+      if (data.status      !== undefined) patch.status           = data.status;
+      if (data.source      !== undefined) patch.source           = data.source;
+      if (data.assignedTo  !== undefined) patch.assigned_to      = data.assignedTo;
+      if (data.lastActivityAt !== undefined) patch.last_activity_at = data.lastActivityAt;
+
+      const { error } = await supabase
+        .from('leads')
+        .update(patch)
+        .eq('id', id);
+
+      if (error) {
+        console.error('[LeadsContext] updateLead error', error);
+        toast.error('Failed to update lead', { description: error.message });
+        return;
+      }
+
+      // Optimistic local update
       setLeads(prev =>
         prev.map(l =>
-          l.id === id ? { ...l, ...data, lastActivityAt: Date.now() } : l,
+          l.id === id
+            ? { ...l, ...data, lastActivityAt: now }
+            : l,
         ),
       );
     },
     [],
   );
 
-  const deleteLead = useCallback((id: number) => {
+  const deleteLead = useCallback(async (id: number) => {
+    const { error } = await supabase.from('leads').delete().eq('id', id);
+
+    if (error) {
+      console.error('[LeadsContext] deleteLead error', error);
+      toast.error('Failed to delete lead', { description: error.message });
+      return;
+    }
+
     setLeads(prev => prev.filter(l => l.id !== id));
   }, []);
 
   const dismissArrivals = useCallback(() => setNewArrivals([]), []);
 
   // ── Webhook SSE listener ────────────────────────────────────────────────────
+  // The backend now writes the lead to Supabase before broadcasting the SSE
+  // event, so here we only need to refresh our local state with the new row.
 
   useEffect(() => {
     let es: EventSource | null = null;
@@ -159,34 +238,38 @@ export function LeadsProvider({ children }: { children: ReactNode }) {
       es.addEventListener('new_lead', (evt: MessageEvent) => {
         try {
           const d = JSON.parse(evt.data) as Record<string, unknown>;
-          if (d.name && d.phone) {
-            addLead({
-              name:   String(d.name).trim(),
-              phone:  String(d.phone).trim(),
-              source: (d.source as LeadSource) ?? 'IndiaMart',
-              email:  typeof d.email === 'string' ? d.email.trim() : '',
+          // The backend echoes the full DB row (snake_case) in the SSE payload
+          if (d.id && d.name) {
+            const newLead = rowToLead(d as unknown as LeadRow);
+            setLeads(prev => {
+              // Avoid duplicates if the user is the one who submitted the form
+              if (prev.some(l => l.id === newLead.id)) return prev;
+              return [newLead, ...prev];
             });
+            setNewArrivals(prev => {
+              if (prev.some(l => l.id === newLead.id)) return prev;
+              return [newLead, ...prev];
+            });
+            // Advance rr index to stay in sync
+            rrIndexRef.current =
+              (rrIndexRef.current + 1) % Math.max(TELECALLER_POOL.length, 1);
           }
         } catch {
-          // ignore malformed event data
+          // ignore malformed SSE payload
         }
       });
 
-      es.onerror = () => {
-        // EventSource auto-retries on error — no action needed
-      };
+      es.onerror = () => { /* EventSource auto-retries */ };
     } catch {
-      // EventSource not available (SSR / very old browser)
+      // EventSource not available
     }
 
-    return () => {
-      es?.close();
-    };
-  }, [addLead]);
+    return () => { es?.close(); };
+  }, []); // no deps — refs & setters are stable
 
   return (
     <LeadsContext.Provider
-      value={{ leads, newArrivals, addLead, updateLead, deleteLead, dismissArrivals }}
+      value={{ leads, newArrivals, loading, addLead, updateLead, deleteLead, dismissArrivals }}
     >
       {children}
     </LeadsContext.Provider>
