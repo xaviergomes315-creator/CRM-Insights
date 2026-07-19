@@ -7,9 +7,10 @@ import { AuthProvider } from '@/contexts/AuthContext';
 import { LeadsProvider } from '@/contexts/LeadsContext';
 import { TasksProvider } from '@/contexts/TasksContext';
 import ProtectedRoute from '@/components/ProtectedRoute';
+import RoleRouter from '@/components/RoleRouter';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import LoginPage from '@/pages/LoginPage';
-import Dashboard from '@/pages/Dashboard';
+import UnauthorizedPage from '@/pages/UnauthorizedPage';
 import LeadsPage from '@/pages/LeadsPage';
 import TelecallerPage from '@/pages/TelecallerPage';
 import InvoicePage from '@/pages/InvoicePage';
@@ -47,8 +48,10 @@ function App() {
 
                   {/* ── Protected: any authenticated user ────────────────── */}
                   <Route element={<ProtectedRoute />}>
+                    {/* Unauthorized — inside auth guard but outside DashboardLayout */}
+                    <Route path="/unauthorized" element={<UnauthorizedPage />} />
                     <Route element={<DashboardLayout />}>
-                      <Route path="/"            element={<Dashboard />}     />
+                      <Route path="/"            element={<RoleRouter />}    />
                       <Route path="/leads"        element={<LeadsPage />}     />
                       <Route path="/pipeline"     element={<PipelineView />}  />
                       <Route path="/telecaller"   element={<TelecallerPage />}/>
