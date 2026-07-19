@@ -4,8 +4,8 @@ import { clsx } from 'clsx';
 import {
   LayoutDashboard, Users, PhoneCall, FileText, Globe,
   Bell, Search, ChevronRight, Building2, MessageCircle,
-  CalendarDays, BarChart2, Menu, X, Kanban, ClipboardList,
-  LogOut, UserCog, ShieldCheck, ShieldAlert, Webhook,
+  Share2, BarChart2, Menu, X, Kanban, ClipboardList,
+  LogOut, UserCog, ShieldCheck, ShieldAlert, Webhook, Receipt,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -19,10 +19,10 @@ const NAV_ITEMS = [
   { to: '/tasks',        label: 'Tasks',        icon: ClipboardList,   exact: false, adminOnly: false },
   { to: '/proposals',    label: 'Proposals',    icon: FileText,        exact: false, adminOnly: false },
   { to: '/whatsapp',     label: 'WhatsApp',     icon: MessageCircle,   exact: false, adminOnly: false },
-  { to: '/social-media', label: 'Social Media', icon: CalendarDays,    exact: false, adminOnly: false },
+  { to: '/social-media', label: 'Social Media', icon: Share2,          exact: false, adminOnly: false },
   // Admin-only pages — hidden from Telecaller
   { to: '/analytics',    label: 'Analytics',    icon: BarChart2,  exact: false, adminOnly: true  },
-  { to: '/invoices',     label: 'Invoices',     icon: FileText,   exact: false, adminOnly: true  },
+  { to: '/invoices',     label: 'Invoices',     icon: Receipt,    exact: false, adminOnly: true  },
   { to: '/admin',        label: 'Admin Panel',  icon: UserCog,    exact: false, adminOnly: true  },
   { to: '/integrations', label: 'Integrations', icon: Webhook,    exact: false, adminOnly: true  },
   // Visible to all authenticated users

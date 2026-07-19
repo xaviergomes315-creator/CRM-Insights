@@ -3,6 +3,7 @@ import {
   Globe, FileText, Layers, Clock, CheckCircle2, AlertCircle,
   Download, ExternalLink, Building2,
 } from 'lucide-react';
+import { toast } from 'sonner';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -32,10 +33,10 @@ const INVOICES: Invoice[] = [
 ];
 
 const PROJECTS: Project[] = [
-  { name: 'CRM Dashboard',         stage: 'Live',            progress: 100, lastUpdate: '2026-07-10', status: 'Completed' },
-  { name: 'WhatsApp Automation',   stage: 'Testing',         progress: 75,  lastUpdate: '2026-07-15', status: 'In Review' },
-  { name: 'IndiaMart Integration', stage: 'In Development',  progress: 50,  lastUpdate: '2026-07-17', status: 'On Track'  },
-  { name: 'Analytics Module',      stage: 'Planning',        progress: 20,  lastUpdate: '2026-07-18', status: 'On Track'  },
+  { name: 'CRM Dashboard',         stage: 'Live',           progress: 100, lastUpdate: '2026-07-10', status: 'Completed' },
+  { name: 'WhatsApp Automation',   stage: 'Testing',        progress: 75,  lastUpdate: '2026-07-15', status: 'In Review' },
+  { name: 'IndiaMart Integration', stage: 'In Development', progress: 50,  lastUpdate: '2026-07-17', status: 'On Track'  },
+  { name: 'Analytics Module',      stage: 'Planning',       progress: 20,  lastUpdate: '2026-07-18', status: 'On Track'  },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -53,7 +54,7 @@ const INVOICE_STATUS_ICONS: Record<Invoice['status'], typeof CheckCircle2> = {
 };
 
 const PROJECT_STATUS_STYLES: Record<Project['status'], string> = {
-  Completed: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+  Completed:   'bg-emerald-100 text-emerald-700 border-emerald-200',
   'In Review': 'bg-violet-100 text-violet-700 border-violet-200',
   'On Track':  'bg-blue-100  text-blue-700  border-blue-200',
 };
@@ -73,6 +74,12 @@ function fmtDate(iso: string) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ClientPortal() {
+  const handleDownload = (inv: Invoice) => {
+    toast.info(`${inv.id} download`, {
+      description: 'PDF download will be available once billing is connected.',
+    });
+  };
+
   return (
     <div className="space-y-6">
 
@@ -84,7 +91,7 @@ export default function ClientPortal() {
             <h1 className="text-2xl font-bold text-foreground">Client Portal</h1>
           </div>
           <p className="text-sm text-muted-foreground">
-            Welcome to the Client Portal — view your invoices and project status at a glance.
+            View your invoices and project status at a glance.
           </p>
         </div>
 
@@ -161,7 +168,7 @@ export default function ClientPortal() {
                       <td className="px-5 py-4 whitespace-nowrap text-right">
                         <button
                           className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted transition-colors min-h-[32px]"
-                          onClick={() => alert(`Downloading ${inv.id}… (placeholder)`)}
+                          onClick={() => handleDownload(inv)}
                         >
                           <Download className="h-3 w-3" />
                           Download

@@ -169,7 +169,7 @@ export default function LoginPage() {
         </div>
 
         <p className="text-center text-xs text-muted-foreground">
-          Authentication is mock-based. Supabase integration coming soon.
+          Secured with role-based access control.
         </p>
       </div>
     </div>

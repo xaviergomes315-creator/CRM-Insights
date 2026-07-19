@@ -1,17 +1,8 @@
 import { useState, useEffect } from 'react';
 import { clsx } from 'clsx';
-import { Send, CheckCircle2, Users, MessageSquare, X, CheckCheck } from 'lucide-react';
-
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-type LeadStatus = 'New' | 'Interested' | 'Demo Scheduled' | 'Closed';
-
-interface Lead {
-  id: number;
-  name: string;
-  phone: string;
-  status: LeadStatus;
-}
+import { Send, CheckCircle2, Users, MessageSquare, X, CheckCheck, Loader2 } from 'lucide-react';
+import { useLeads, type LeadStatus } from '@/contexts/LeadsContext';
+import { useAuth, maskPhone } from '@/contexts/AuthContext';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -22,29 +13,20 @@ const STATUS_STYLES: Record<LeadStatus, string> = {
   Closed:          'bg-emerald-100 text-emerald-700 border border-emerald-200',
 };
 
-const LEADS: Lead[] = [
-  { id: 1, name: 'Priya Sharma',  phone: '+91 98001 11111', status: 'New'            },
-  { id: 2, name: 'Rahul Mehta',   phone: '+91 98001 22222', status: 'Interested'     },
-  { id: 3, name: 'Anita Desai',   phone: '+91 98001 33333', status: 'Closed'         },
-  { id: 4, name: 'Vikram Nair',   phone: '+91 98001 44444', status: 'New'            },
-  { id: 5, name: 'Sunita Patel',  phone: '+91 98001 55555', status: 'Demo Scheduled' },
-  { id: 6, name: 'Deepak Kumar',  phone: '+91 98001 66666', status: 'New'            },
-  { id: 7, name: 'Meena Joshi',   phone: '+91 98001 77777', status: 'Closed'         },
+const STATUS_FILTER_OPTIONS: Array<LeadStatus | 'All'> = [
+  'All', 'New', 'Interested', 'Demo Scheduled', 'Closed',
 ];
 
 const MESSAGE_TEMPLATES = [
-  { label: 'Follow-up',    text: 'Hi {{name}}, this is a follow-up from CRM Pro. We wanted to check in on your enquiry. Please feel free to reach out to us anytime!' },
-  { label: 'Offer',        text: 'Hi {{name}}, we have an exciting offer exclusively for you. Contact us today to learn more about our services.' },
-  { label: 'Appointment',  text: 'Hi {{name}}, your appointment is confirmed. Please reach out if you need to reschedule. Looking forward to speaking with you!' },
-  { label: 'Thank You',    text: 'Hi {{name}}, thank you for your time! It was a pleasure speaking with you. We look forward to working with you.' },
+  { label: 'Follow-up',   text: 'Hi {{name}}, this is a follow-up from CRM Pro. We wanted to check in on your enquiry. Please feel free to reach out to us anytime!' },
+  { label: 'Offer',       text: 'Hi {{name}}, we have an exciting offer exclusively for you. Contact us today to learn more about our services.' },
+  { label: 'Appointment', text: 'Hi {{name}}, your appointment is confirmed. Please reach out if you need to reschedule. Looking forward to speaking with you!' },
+  { label: 'Thank You',   text: 'Hi {{name}}, thank you for your time! It was a pleasure speaking with you. We look forward to working with you.' },
 ];
 
 // ─── Toast ────────────────────────────────────────────────────────────────────
 
-interface ToastProps {
-  count: number;
-  onClose: () => void;
-}
+interface ToastProps { count: number; onClose: () => void; }
 
 function SuccessToast({ count, onClose }: ToastProps) {
   useEffect(() => {
@@ -88,16 +70,19 @@ interface SentEntry {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function WhatsAppPage() {
-  const [selected, setSelected]     = useState<Set<number>>(new Set());
-  const [message, setMessage]       = useState('');
-  const [sending, setSending]       = useState(false);
-  const [toast, setToast]           = useState<{ count: number } | null>(null);
-  const [sentLog, setSentLog]       = useState<SentEntry[]>([]);
+  const { leads, loading } = useLeads();
+  const { isTelecaller } = useAuth();
+
+  const [selected, setSelected]         = useState<Set<number>>(new Set());
+  const [message, setMessage]           = useState('');
+  const [sending, setSending]           = useState(false);
+  const [toast, setToast]               = useState<{ count: number } | null>(null);
+  const [sentLog, setSentLog]           = useState<SentEntry[]>([]);
   const [filterStatus, setFilterStatus] = useState<LeadStatus | 'All'>('All');
 
   const filteredLeads = filterStatus === 'All'
-    ? LEADS
-    : LEADS.filter(l => l.status === filterStatus);
+    ? leads
+    : leads.filter(l => l.status === filterStatus);
 
   const allFilteredSelected = filteredLeads.length > 0 && filteredLeads.every(l => selected.has(l.id));
   const someSelected        = selected.size > 0;
@@ -134,10 +119,9 @@ export default function WhatsAppPage() {
     if (!canSend) return;
     setSending(true);
 
-    // Simulate network delay
     await new Promise(r => setTimeout(r, 1200));
 
-    const sentLeads = LEADS.filter(l => selected.has(l.id));
+    const sentLeads = leads.filter(l => selected.has(l.id));
     const entry: SentEntry = {
       id:      Date.now(),
       names:   sentLeads.map(l => l.name),
@@ -184,10 +168,9 @@ export default function WhatsAppPage() {
               onChange={e => setFilterStatus(e.target.value as LeadStatus | 'All')}
               className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 transition-colors"
             >
-              <option value="All">All</option>
-              <option value="New">New</option>
-              <option value="Contacted">Contacted</option>
-              <option value="Closed">Closed</option>
+              {STATUS_FILTER_OPTIONS.map(s => (
+                <option key={s} value={s}>{s}</option>
+              ))}
             </select>
           </div>
 
@@ -198,7 +181,8 @@ export default function WhatsAppPage() {
               id="select-all"
               checked={allFilteredSelected}
               onChange={toggleAll}
-              className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
+              disabled={filteredLeads.length === 0}
+              className="h-4 w-4 rounded border-border accent-primary cursor-pointer disabled:cursor-not-allowed"
             />
             <label htmlFor="select-all" className="text-xs font-semibold text-muted-foreground uppercase tracking-wide cursor-pointer select-none">
               Select all ({filteredLeads.length})
@@ -206,9 +190,16 @@ export default function WhatsAppPage() {
           </div>
 
           {/* Lead list */}
-          <div className="flex-1 overflow-y-auto divide-y divide-border">
-            {filteredLeads.length === 0 ? (
-              <p className="px-5 py-8 text-center text-sm text-muted-foreground">No leads match this filter.</p>
+          <div className="flex-1 overflow-y-auto divide-y divide-border min-h-[200px]">
+            {loading ? (
+              <div className="flex items-center justify-center gap-2 px-5 py-8 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading leads…
+              </div>
+            ) : filteredLeads.length === 0 ? (
+              <p className="px-5 py-8 text-center text-sm text-muted-foreground">
+                {leads.length === 0 ? 'No leads in the database yet.' : 'No leads match this filter.'}
+              </p>
             ) : (
               filteredLeads.map(lead => {
                 const checked = selected.has(lead.id);
@@ -230,7 +221,10 @@ export default function WhatsAppPage() {
                     />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-foreground truncate">{lead.name}</p>
-                      <p className="text-xs text-muted-foreground">{lead.phone}</p>
+                      {/* Phone: masked for Telecaller role */}
+                      <p className="text-xs text-muted-foreground font-mono">
+                        {isTelecaller ? maskPhone(lead.phone) : lead.phone}
+                      </p>
                     </div>
                     <span className={clsx('inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold flex-shrink-0', STATUS_STYLES[lead.status])}>
                       {lead.status}
@@ -273,7 +267,7 @@ export default function WhatsAppPage() {
                 value={message}
                 onChange={e => setMessage(e.target.value)}
                 rows={6}
-                placeholder="Type your WhatsApp message here…&#10;&#10;Tip: Use {{name}} to personalise with the lead's name."
+                placeholder={`Type your WhatsApp message here…\n\nTip: Use {{name}} to personalise with the lead's name.`}
                 className="w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/30 resize-none"
               />
               <div className="flex items-center justify-between mt-1.5">

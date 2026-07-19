@@ -36,15 +36,7 @@ const SOURCE_STYLES: Record<LeadSource, string> = {
   'Social Media':'bg-pink-100 text-pink-700 border border-pink-200',
 };
 
-const INITIAL_CALLS: PendingCall[] = [
-  { id: 1, clientName: 'Priya Sharma',  phone: '+91 98001 11111', lastCalledDate: '2026-07-14', outcome: 'Interested',     nextCallDate: '2026-07-20' },
-  { id: 2, clientName: 'Rahul Mehta',   phone: '+91 98001 22222', lastCalledDate: '2026-07-15', outcome: 'No Answer',      nextCallDate: null },
-  { id: 3, clientName: 'Anita Desai',   phone: '+91 98001 33333', lastCalledDate: '2026-07-13', outcome: 'Not Interested', nextCallDate: null },
-  { id: 4, clientName: 'Vikram Nair',   phone: '+91 98001 44444', lastCalledDate: '2026-07-16', outcome: 'Pending',        nextCallDate: '2026-07-18' },
-  { id: 5, clientName: 'Sunita Patel',  phone: '+91 98001 55555', lastCalledDate: '2026-07-10', outcome: 'Interested',     nextCallDate: '2026-07-22' },
-  { id: 6, clientName: 'Deepak Kumar',  phone: '+91 98001 66666', lastCalledDate: '2026-07-12', outcome: 'No Answer',      nextCallDate: null },
-  { id: 7, clientName: 'Meena Joshi',   phone: '+91 98001 77777', lastCalledDate: '2026-07-11', outcome: 'Pending',        nextCallDate: '2026-07-19' },
-];
+const INITIAL_CALLS: PendingCall[] = [];
 
 const DAYS_OF_WEEK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const EMPTY_FORM: ScheduleForm = { date: '', time: '10:00', notes: '' };

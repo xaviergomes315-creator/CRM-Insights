@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from 'react';
 import { toast } from 'sonner';
+import { useAuth } from '@/contexts/AuthContext';
 import { supabase, type TaskRow } from '@/lib/supabase';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -51,12 +52,21 @@ function rowToTask(row: TaskRow): Task {
 const TasksContext = createContext<TasksContextType | null>(null);
 
 export function TasksProvider({ children }: { children: ReactNode }) {
-  const [tasks,   setTasks]   = useState<Task[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { isAuthenticated } = useAuth();
 
-  // ── Initial load ────────────────────────────────────────────────────────────
+  const [tasks,   setTasks]   = useState<Task[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  // ── Initial load (only when authenticated) ──────────────────────────────────
 
   useEffect(() => {
+    // Clear state on logout
+    if (!isAuthenticated) {
+      setTasks([]);
+      setLoading(false);
+      return;
+    }
+
     let cancelled = false;
 
     async function load() {
@@ -82,7 +92,7 @@ export function TasksProvider({ children }: { children: ReactNode }) {
 
     load();
     return () => { cancelled = true; };
-  }, []);
+  }, [isAuthenticated]);
 
   // ── CRUD ────────────────────────────────────────────────────────────────────
 

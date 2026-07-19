@@ -4,32 +4,8 @@ import {
   PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
 } from 'recharts';
-import { TrendingUp, Users, CheckCircle, Clock, BarChart2 } from 'lucide-react';
-
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-type LeadSource = 'WhatsApp' | 'Website' | 'IndiaMart' | 'JustDial' | 'Social Media';
-type LeadStatus = 'New' | 'Interested' | 'Demo Scheduled' | 'Closed';
-
-interface Lead {
-  source: LeadSource;
-  status: LeadStatus;
-}
-
-// ─── Data (mirrors LeadsPage initial state) ──────────────────────────────────
-
-const LEADS: Lead[] = [
-  { source: 'IndiaMart',    status: 'New'            },
-  { source: 'WhatsApp',     status: 'Interested'     },
-  { source: 'Website',      status: 'Closed'         },
-  { source: 'JustDial',     status: 'New'            },
-  { source: 'Social Media', status: 'Interested'     },
-  { source: 'IndiaMart',    status: 'New'            },
-  { source: 'Website',      status: 'Closed'         },
-  { source: 'WhatsApp',     status: 'Demo Scheduled' },
-  { source: 'Social Media', status: 'Interested'     },
-  { source: 'JustDial',     status: 'New'            },
-];
+import { TrendingUp, Users, CheckCircle, Clock, BarChart2, Database } from 'lucide-react';
+import { useLeads, type LeadSource, type LeadStatus } from '@/contexts/LeadsContext';
 
 // ─── Source palette ───────────────────────────────────────────────────────────
 
@@ -51,18 +27,18 @@ const SOURCE_BADGE: Record<LeadSource, string> = {
 
 // ─── Computed Data ────────────────────────────────────────────────────────────
 
-function buildSourceData(leads: Lead[]) {
+function buildSourceData(leads: { source: LeadSource }[], total: number) {
   const counts: Partial<Record<LeadSource, number>> = {};
   leads.forEach(l => { counts[l.source] = (counts[l.source] ?? 0) + 1; });
   return Object.entries(counts).map(([source, value]) => ({
     name: source as LeadSource,
     value: value as number,
-    percent: Math.round(((value as number) / leads.length) * 100),
+    percent: total > 0 ? Math.round(((value as number) / total) * 100) : 0,
     color: SOURCE_COLORS[source as LeadSource],
   }));
 }
 
-function buildStatusData(leads: Lead[]) {
+function buildStatusData(leads: { status: LeadStatus }[]) {
   const order: LeadStatus[] = ['New', 'Interested', 'Demo Scheduled', 'Closed'];
   const colors: Record<LeadStatus, string> = {
     New:             '#3b82f6',
@@ -96,12 +72,12 @@ function CustomPieLabel({ cx, cy, midAngle, innerRadius, outerRadius, percent }:
   );
 }
 
-// ─── Custom Tooltip ───────────────────────────────────────────────────────────
+// ─── Custom Tooltips ──────────────────────────────────────────────────────────
 
-function PieTooltip({ active, payload }: { active?: boolean; payload?: Array<{ name: string; value: number }> }) {
+function PieTooltip({ active, payload, total }: { active?: boolean; payload?: Array<{ name: string; value: number }>; total: number }) {
   if (!active || !payload?.length) return null;
   const { name, value } = payload[0];
-  const pct = Math.round((value / LEADS.length) * 100);
+  const pct = total > 0 ? Math.round((value / total) * 100) : 0;
   return (
     <div className="rounded-lg border border-border bg-card shadow-lg px-3 py-2 text-xs">
       <p className="font-semibold text-foreground">{name}</p>
@@ -123,23 +99,86 @@ function BarTooltip({ active, payload, label }: { active?: boolean; payload?: Ar
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function AnalyticsPage() {
+  const { leads, loading } = useLeads();
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
 
-  const sourceData = buildSourceData(LEADS);
-  const statusData = buildStatusData(LEADS);
+  const totalLeads   = leads.length;
+  const newLeads     = leads.filter(l => l.status === 'New').length;
+  const inPipeline   = leads.filter(l => l.status === 'Interested' || l.status === 'Demo Scheduled').length;
+  const closed       = leads.filter(l => l.status === 'Closed').length;
+  const convRate     = totalLeads > 0 ? Math.round((closed / totalLeads) * 100) : 0;
 
-  const totalLeads   = LEADS.length;
-  const newLeads     = LEADS.filter(l => l.status === 'New').length;
-  const inPipeline   = LEADS.filter(l => l.status === 'Interested' || l.status === 'Demo Scheduled').length;
-  const closed       = LEADS.filter(l => l.status === 'Closed').length;
-  const convRate     = Math.round((closed / totalLeads) * 100);
+  const sourceData = buildSourceData(leads, totalLeads);
+  const statusData = buildStatusData(leads);
 
   const summaryCards = [
-    { label: 'Total Leads',      value: totalLeads,       sub: 'All sources',            icon: Users,       color: 'text-primary'     },
-    { label: 'New Leads',        value: newLeads,         sub: 'Awaiting contact',       icon: TrendingUp,  color: 'text-blue-600'    },
-    { label: 'In Pipeline',      value: inPipeline,       sub: 'Interested / Demo booked', icon: Clock,     color: 'text-amber-600'   },
-    { label: 'Conversion Rate',  value: `${convRate}%`,  sub: `${closed} closed`,       icon: CheckCircle, color: 'text-emerald-600' },
+    { label: 'Total Leads',     value: totalLeads,      sub: 'All sources',              icon: Users,       color: 'text-primary'     },
+    { label: 'New Leads',       value: newLeads,        sub: 'Awaiting contact',         icon: TrendingUp,  color: 'text-blue-600'    },
+    { label: 'In Pipeline',     value: inPipeline,      sub: 'Interested / Demo booked', icon: Clock,       color: 'text-amber-600'   },
+    { label: 'Conversion Rate', value: `${convRate}%`,  sub: `${closed} closed`,         icon: CheckCircle, color: 'text-emerald-600' },
   ];
+
+  // ── Loading skeleton ──────────────────────────────────────────────────────
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Dashboard Analytics</h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">Lead source tracking and performance overview</p>
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="rounded-xl border border-border bg-card shadow-sm p-5 animate-pulse">
+              <div className="h-3 w-24 bg-muted rounded mb-3" />
+              <div className="h-8 w-16 bg-muted rounded mb-2" />
+              <div className="h-3 w-20 bg-muted rounded" />
+            </div>
+          ))}
+        </div>
+        <div className="h-64 rounded-xl border border-border bg-card flex items-center justify-center animate-pulse">
+          <div className="h-8 w-8 rounded-full bg-muted" />
+        </div>
+      </div>
+    );
+  }
+
+  // ── Empty state ───────────────────────────────────────────────────────────
+
+  if (totalLeads === 0) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Dashboard Analytics</h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">Lead source tracking and performance overview</p>
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {summaryCards.map(c => {
+            const Icon = c.icon;
+            return (
+              <div key={c.label} className="rounded-xl border border-border bg-card shadow-sm p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{c.label}</p>
+                  <Icon className={clsx('h-4 w-4', c.color)} />
+                </div>
+                <p className={clsx('text-2xl font-bold', c.color)}>{c.value}</p>
+                <p className="text-xs text-muted-foreground mt-1">{c.sub}</p>
+              </div>
+            );
+          })}
+        </div>
+        <div className="rounded-xl border border-border bg-card shadow-sm flex flex-col items-center justify-center py-20 text-center gap-3">
+          <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-muted">
+            <Database className="h-7 w-7 text-muted-foreground" />
+          </div>
+          <p className="text-sm font-semibold text-foreground">No lead data yet</p>
+          <p className="text-xs text-muted-foreground max-w-xs">
+            Analytics will populate as leads are added via the CRM Leads page or the public lead form.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -199,7 +238,7 @@ export default function AnalyticsPage() {
                   />
                 ))}
               </Pie>
-              <Tooltip content={<PieTooltip />} />
+              <Tooltip content={<PieTooltip total={totalLeads} />} />
               <Legend
                 iconType="circle"
                 iconSize={8}
@@ -212,7 +251,7 @@ export default function AnalyticsPage() {
 
           {/* Source breakdown table */}
           <div className="mt-4 space-y-2 border-t border-border pt-4">
-            {sourceData.sort((a, b) => b.value - a.value).map(d => (
+            {[...sourceData].sort((a, b) => b.value - a.value).map(d => (
               <div key={d.name} className="flex items-center gap-3">
                 <span className="h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: d.color }} />
                 <span className={clsx('inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold', SOURCE_BADGE[d.name])}>
@@ -277,7 +316,7 @@ export default function AnalyticsPage() {
                   <div className="w-20 h-1.5 rounded-full bg-muted overflow-hidden">
                     <div
                       className="h-full rounded-full"
-                      style={{ width: `${Math.round((d.value / totalLeads) * 100)}%`, backgroundColor: d.fill }}
+                      style={{ width: `${totalLeads > 0 ? Math.round((d.value / totalLeads) * 100) : 0}%`, backgroundColor: d.fill }}
                     />
                   </div>
                   <span className="text-xs font-semibold text-foreground tabular-nums w-6 text-right">{d.value}</span>
@@ -295,7 +334,7 @@ export default function AnalyticsPage() {
           Source Breakdown
         </h2>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-          {sourceData.sort((a, b) => b.value - a.value).map(d => (
+          {[...sourceData].sort((a, b) => b.value - a.value).map(d => (
             <div key={d.name} className="rounded-xl border border-border bg-card shadow-sm p-4 flex flex-col gap-2">
               <div className="flex items-center justify-between">
                 <span className={clsx('inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold', SOURCE_BADGE[d.name])}>

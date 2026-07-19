@@ -66,7 +66,7 @@ function PlatformIcon({ platform, className }: { platform: Platform; className?:
 // ─── Calendar ─────────────────────────────────────────────────────────────────
 
 function PostCalendar({ posts }: { posts: ScheduledPost[] }) {
-  const today  = new Date(2026, 6, 18); // July 18 2026
+  const today  = new Date();
   const [cursor, setCursor] = useState({ year: today.getFullYear(), month: today.getMonth() });
 
   const prev = () => setCursor(c => c.month === 0  ? { year: c.year - 1, month: 11 } : { year: c.year, month: c.month - 1 });

@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import { toast } from 'sonner';
-import { MOCK_USERS } from '@/contexts/AuthContext';
+import { MOCK_USERS, useAuth } from '@/contexts/AuthContext';
 import { supabase, type LeadRow } from '@/lib/supabase';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -93,16 +93,26 @@ function rowToLead(row: LeadRow): Lead {
 const LeadsContext = createContext<LeadsContextType | null>(null);
 
 export function LeadsProvider({ children }: { children: ReactNode }) {
+  const { isAuthenticated } = useAuth();
+
   const [leads, setLeads]             = useState<Lead[]>([]);
   const [newArrivals, setNewArrivals] = useState<Lead[]>([]);
-  const [loading, setLoading]         = useState(true);
+  const [loading, setLoading]         = useState(false);
 
   // Round-robin ref — initialised to 0, corrected after first DB load
   const rrIndexRef = useRef(0);
 
-  // ── Initial load ────────────────────────────────────────────────────────────
+  // ── Initial load (only when authenticated) ──────────────────────────────────
 
   useEffect(() => {
+    // Clear state on logout
+    if (!isAuthenticated) {
+      setLeads([]);
+      setNewArrivals([]);
+      setLoading(false);
+      return;
+    }
+
     let cancelled = false;
 
     async function load() {
@@ -133,7 +143,7 @@ export function LeadsProvider({ children }: { children: ReactNode }) {
 
     load();
     return () => { cancelled = true; };
-  }, []);
+  }, [isAuthenticated]);
 
   // ── CRUD ────────────────────────────────────────────────────────────────────
 
