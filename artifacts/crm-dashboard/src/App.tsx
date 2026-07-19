@@ -21,6 +21,7 @@ import PipelineView from '@/pages/PipelineView';
 import ProposalPage from '@/pages/ProposalPage';
 import TasksPage from '@/pages/TasksPage';
 import AdminPage from '@/pages/AdminPage';
+import UsersPage from '@/pages/UsersPage';
 import ClientPortal from '@/pages/ClientPortal';
 import Integrations from '@/pages/Integrations';
 import PublicLeadForm from '@/pages/PublicLeadForm';
@@ -66,6 +67,7 @@ function App() {
                         <Route path="/analytics"    element={<AnalyticsPage />} />
                         <Route path="/invoices"     element={<InvoicePage />}   />
                         <Route path="/admin"        element={<AdminPage />}     />
+                        <Route path="/users"        element={<UsersPage />}     />
                         <Route path="/integrations" element={<Integrations />}  />
                         <Route path="/settings"     element={<SettingsPage />}  />
                       </Route>
