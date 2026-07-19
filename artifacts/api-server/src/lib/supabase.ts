@@ -50,8 +50,9 @@ function getClient(): SupabaseClient {
 // client is only constructed on first actual use.
 export const supabase = new Proxy({} as SupabaseClient, {
   get(_target, prop) {
-  const client = getClient();
-  const value = (client as unknown as Record<string | symbol, unknown>)[prop];
-  return typeof value === "function" ? value.bind(client) : value;
-},
+    const client = getClient();
+    // Using 'any' type here to bypass strict TS overlaps check for Vercel deployment
+    const value = (client as any)[prop];
+    return typeof value === "function" ? value.bind(client) : value;
+  },
 });
