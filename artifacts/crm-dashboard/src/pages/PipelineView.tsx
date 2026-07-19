@@ -291,7 +291,7 @@ function KanbanColumn({ status, leads }: { status: LeadStatus; leads: Lead[] }) 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function PipelineView() {
-  const { leads, updateLead } = useLeads();
+  const { leads, updateLead, loading } = useLeads();
   const { user, isAdmin, isTelecaller } = useAuth();
 
   // ── Role-based data isolation ─────────────────────────────────────────────
@@ -310,6 +310,42 @@ export default function PipelineView() {
   };
 
   const totalUrgent = visibleLeads.filter(isIdleLead).length;
+
+  // ── Loading state ─────────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <div>
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-foreground">Pipeline</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Drag lead cards between stages to update their pipeline status.
+          </p>
+        </div>
+        <div className="flex gap-4 overflow-x-auto pb-4">
+          {COLUMNS.map(col => {
+            const cfg = COLUMN_CONFIG[col];
+            return (
+              <div key={col} className="flex-shrink-0 w-72">
+                <div className={clsx('flex items-center gap-2 rounded-t-xl border px-4 py-3', cfg.header)}>
+                  <span className={clsx('h-2 w-2 rounded-full', cfg.dot)} />
+                  <span className="text-sm font-semibold text-foreground">{col}</span>
+                </div>
+                <div className="min-h-[200px] rounded-b-xl border-x border-b border-border p-2 space-y-2 bg-muted/20">
+                  {[1, 2, 3].map(i => (
+                    <div key={i} className="rounded-lg border border-border bg-card p-3 animate-pulse space-y-2">
+                      <div className="h-4 w-3/4 rounded bg-muted" />
+                      <div className="h-3 w-1/2 rounded bg-muted" />
+                      <div className="h-3 w-full rounded bg-muted mt-2" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
