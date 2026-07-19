@@ -69,16 +69,6 @@ export function maskPhone(phone: string): string {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// ─── Profile fetch constants ──────────────────────────────────────────────────
-
-/**
- * How many times to retry a missing profile before falling back to auto-create.
- * Handles the race between the DB trigger writing the profile and the client
- * fetching it immediately after sign-up / email confirmation.
- */
-const PROFILE_RETRY_LIMIT    = 5;
-const PROFILE_RETRY_DELAY_MS = 800;
-
 // ─── Provider ────────────────────────────────────────────────────────────────
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -94,20 +84,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => { isMounted.current = false; };
   }, []);
 
-  // ── Auto-create fallback profile ─────────────────────────────────────────
+  // ── Onboarding RPC ───────────────────────────────────────────────────────
   /**
-   * Called when fetchProfile exhausts all retries without finding a row.
-   * Invokes the SECURITY DEFINER RPC `ensure_own_profile` which upserts the
-   * profile and returns it — bypassing RLS so the INSERT always succeeds.
-   * Clears isLoading when finished (success or failure).
+   * Calls the `onboard_user` SECURITY DEFINER RPC which, in a single
+   * transaction:
+   *   1. Upserts the user_profiles row (creates it if missing).
+   *   2. If company_id is NULL, finds or creates a company and assigns the
+   *      user as company_admin (first on domain) or employee (subsequent).
+   *   3. Guarantees role is never NULL.
+   *   4. Returns the fully-populated profile row.
+   *
+   * Idempotent — safe to call on every login; repeated calls are no-ops for
+   * users whose profile, company, and role are already set.
    */
-  const createFallbackProfile = async (): Promise<void> => {
+  const runOnboarding = async (): Promise<void> => {
     try {
-      const { data, error } = await supabase.rpc("ensure_own_profile");
+      const { data, error } = await supabase.rpc("onboard_user");
       if (!isMounted.current) return;
 
       if (error) {
-        console.error("[AuthContext] ensure_own_profile RPC error:", error.message);
+        console.error("[AuthContext] onboard_user RPC error:", error.message);
         setProfile(null);
         return;
       }
@@ -115,7 +111,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // RPC returns SETOF user_profiles — take the first (and only) row.
       const row = Array.isArray(data) ? data[0] : data;
       if (!row) {
-        console.error("[AuthContext] ensure_own_profile returned no rows.");
+        console.error("[AuthContext] onboard_user returned no rows.");
         setProfile(null);
         return;
       }
@@ -123,92 +119,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setProfile(row as UserProfile);
     } catch (err) {
       if (!isMounted.current) return;
-      console.error("[AuthContext] Unexpected error in ensure_own_profile:", err);
+      console.error("[AuthContext] Unexpected error in onboard_user:", err);
       setProfile(null);
     } finally {
       if (isMounted.current) setIsLoading(false);
     }
   };
 
-  // ── Fetch profile with retry → auto-create ────────────────────────────────
-  /**
-   * Fetches the user_profiles row for `userId`.
-   *
-   * Retry strategy:
-   *   - PGRST116 (no row found) → retry up to PROFILE_RETRY_LIMIT times with
-   *     increasing delays. Keeps isLoading=true throughout.
-   *   - Retries exhausted → call createFallbackProfile() to upsert via RPC.
-   *   - Any other DB error → set profile=null and clear isLoading.
-   *
-   * The `scheduledRetry` flag prevents the finally block from clearing
-   * isLoading prematurely when a retry or fallback creation is still in flight.
-   */
-  const fetchProfile = async (userId: string, attempt = 0): Promise<void> => {
-    // When true, something else (retry timeout or createFallbackProfile) is
-    // responsible for eventually calling setIsLoading(false).
-    let scheduledRetry = false;
-
-    try {
-      const { data, error } = await supabase
-        .from("user_profiles")
-        .select("id, full_name, role, company_id, avatar_url, created_at, updated_at")
-        .eq("id", userId)
-        .single();
-
-      if (!isMounted.current) return;
-
-      if (error) {
-        if (error.code === "PGRST116") {
-          if (attempt < PROFILE_RETRY_LIMIT) {
-            // Trigger may not have fired yet — keep loading and retry.
-            scheduledRetry = true;
-            setTimeout(
-              () => fetchProfile(userId, attempt + 1),
-              PROFILE_RETRY_DELAY_MS * (attempt + 1),
-            );
-            return;
-          }
-
-          // All retries exhausted — profile row is genuinely missing.
-          // Auto-create it via SECURITY DEFINER RPC.
-          scheduledRetry = true; // createFallbackProfile owns setIsLoading(false)
-          await createFallbackProfile();
-          return;
-        }
-
-        // Non-PGRST116 DB error (network, permissions, etc.)
-        console.error("[AuthContext] Error fetching user profile:", error.message);
-        setProfile(null);
-      } else {
-        setProfile(data as UserProfile);
-      }
-    } catch (err) {
-      if (!isMounted.current) return;
-      console.error("[AuthContext] Unexpected error fetching profile:", err);
-      setProfile(null);
-    } finally {
-      // Only clear loading if no retry / fallback creation is taking over.
-      if (!scheduledRetry && isMounted.current) {
-        setIsLoading(false);
-      }
-    }
-  };
-
   // ── Auth state listener ──────────────────────────────────────────────────
   useEffect(() => {
-    // 1. Hydrate from existing session in localStorage/cookie
+    // 1. Hydrate from existing session in localStorage/cookie, then onboard.
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!isMounted.current) return;
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-        fetchProfile(session.user.id);
+        runOnboarding();
       } else {
         setIsLoading(false);
       }
     });
 
-    // 2. React to every auth event going forward
+    // 2. React to every auth event going forward.
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
@@ -217,11 +149,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(session?.user ?? null);
 
       if (session?.user) {
-        // INITIAL_SESSION fires on page load — profile already being fetched
-        // above; skip the duplicate call to avoid a double-fetch race.
+        // INITIAL_SESSION fires on page load — onboarding already running
+        // from getSession() above; skip to avoid a duplicate RPC call.
         if (event !== "INITIAL_SESSION") {
           setIsLoading(true);
-          fetchProfile(session.user.id);
+          runOnboarding();
         }
       } else {
         setProfile(null);
