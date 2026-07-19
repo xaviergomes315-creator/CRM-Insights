@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, type FormEvent } from 'react';
 import { clsx } from 'clsx';
-import { Globe, Plus, X, FolderOpen } from 'lucide-react';
+import { Globe, Plus, X, FolderOpen, Pencil } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 
@@ -20,7 +20,7 @@ interface WebsiteProject {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const COLUMNS = ['Project Name', 'Client', 'Status', 'Assigned To', 'Deadline'] as const;
+const COLUMNS = ['Project Name', 'Client', 'Status', 'Assigned To', 'Deadline', ''] as const;
 
 const WEBSITE_TYPE_OPTIONS = [
   'Landing Page',
@@ -64,17 +64,28 @@ function formatDeadline(date: string | null): string {
 
 // ─── Modal ────────────────────────────────────────────────────────────────────
 
-interface NewProjectModalProps {
+const STATUS_OPTIONS = [
+  'Planning',
+  'In Progress',
+  'Review',
+  'Completed',
+  'On Hold',
+] as const;
+
+interface ProjectModalProps {
   open: boolean;
   onClose: () => void;
   onSuccess: () => void;
   companyId: string | null;
+  /** Pass a project to edit; omit (or null) to create a new one. */
+  editProject?: WebsiteProject | null;
 }
 
 interface ProjectForm {
   project_name: string;
   client: string;
   website_type: string;
+  status: string;
   deadline: string;
   assigned_to: string;
 }
@@ -83,19 +94,36 @@ const EMPTY_FORM: ProjectForm = {
   project_name: '',
   client: '',
   website_type: WEBSITE_TYPE_OPTIONS[0],
+  status: 'Planning',
   deadline: '',
   assigned_to: '',
 };
 
-function NewProjectModal({ open, onClose, onSuccess, companyId }: NewProjectModalProps) {
-  const [form, setForm]           = useState<ProjectForm>(EMPTY_FORM);
+function projectToForm(p: WebsiteProject): ProjectForm {
+  return {
+    project_name: p.project_name,
+    client:       p.client,
+    website_type: p.website_type || WEBSITE_TYPE_OPTIONS[0],
+    status:       p.status,
+    deadline:     p.deadline ?? '',
+    assigned_to:  p.assigned_to,
+  };
+}
+
+function ProjectModal({ open, onClose, onSuccess, companyId, editProject }: ProjectModalProps) {
+  const isEdit = !!editProject;
+
+  const [form, setForm]             = useState<ProjectForm>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError]           = useState('');
 
-  // Reset form whenever the modal opens
+  // Sync form whenever the modal opens or the target project changes
   useEffect(() => {
-    if (open) { setForm(EMPTY_FORM); setError(''); }
-  }, [open]);
+    if (open) {
+      setForm(editProject ? projectToForm(editProject) : EMPTY_FORM);
+      setError('');
+    }
+  }, [open, editProject]);
 
   if (!open) return null;
 
@@ -111,22 +139,37 @@ function NewProjectModal({ open, onClose, onSuccess, companyId }: NewProjectModa
     setError('');
     setSubmitting(true);
 
-    const { error: dbError } = await supabase.from('website_projects').insert({
-      company_id:   companyId,
-      project_name: form.project_name.trim(),
-      client:       form.client.trim(),
-      website_type: form.website_type,
-      deadline:     form.deadline || null,
-      assigned_to:  form.assigned_to.trim(),
-      status:       'Planning',
-    });
+    let dbError;
+
+    if (isEdit && editProject) {
+      ({ error: dbError } = await supabase
+        .from('website_projects')
+        .update({
+          project_name: form.project_name.trim(),
+          client:       form.client.trim(),
+          website_type: form.website_type,
+          status:       form.status,
+          deadline:     form.deadline || null,
+          assigned_to:  form.assigned_to.trim(),
+        })
+        .eq('id', editProject.id));
+    } else {
+      ({ error: dbError } = await supabase
+        .from('website_projects')
+        .insert({
+          company_id:   companyId,
+          project_name: form.project_name.trim(),
+          client:       form.client.trim(),
+          website_type: form.website_type,
+          status:       'Planning',
+          deadline:     form.deadline || null,
+          assigned_to:  form.assigned_to.trim(),
+        }));
+    }
 
     setSubmitting(false);
 
-    if (dbError) {
-      setError(dbError.message);
-      return;
-    }
+    if (dbError) { setError(dbError.message); return; }
 
     onSuccess();
     onClose();
@@ -145,9 +188,11 @@ function NewProjectModal({ open, onClose, onSuccess, companyId }: NewProjectModa
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <div className="flex items-center gap-2.5">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
-              <Globe className="h-4 w-4 text-blue-600" />
+              {isEdit ? <Pencil className="h-4 w-4 text-blue-600" /> : <Globe className="h-4 w-4 text-blue-600" />}
             </div>
-            <h2 className="text-base font-bold text-gray-900">New Website Project</h2>
+            <h2 className="text-base font-bold text-gray-900">
+              {isEdit ? 'Edit Project' : 'New Website Project'}
+            </h2>
           </div>
           <button
             type="button"
@@ -215,6 +260,25 @@ function NewProjectModal({ open, onClose, onSuccess, companyId }: NewProjectModa
             </select>
           </div>
 
+          {/* Status (edit mode only) */}
+          {isEdit && (
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wide">
+                Status
+              </label>
+              <select
+                value={form.status}
+                onChange={e => set('status', e.target.value)}
+                disabled={submitting}
+                className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition-colors disabled:opacity-60"
+              >
+                {STATUS_OPTIONS.map(opt => (
+                  <option key={opt} value={opt}>{opt}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {/* Deadline */}
           <div className="space-y-1.5">
             <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wide">
@@ -264,6 +328,11 @@ function NewProjectModal({ open, onClose, onSuccess, companyId }: NewProjectModa
                   <span className="h-3.5 w-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
                   Saving…
                 </>
+              ) : isEdit ? (
+                <>
+                  <Pencil className="h-3.5 w-3.5" />
+                  Save Changes
+                </>
               ) : (
                 <>
                   <Plus className="h-3.5 w-3.5" />
@@ -284,9 +353,14 @@ function NewProjectModal({ open, onClose, onSuccess, companyId }: NewProjectModa
 export default function WebsiteProjectsPage() {
   const { profile } = useAuth();
 
-  const [projects,   setProjects]   = useState<WebsiteProject[]>([]);
-  const [loading,    setLoading]    = useState(true);
-  const [modalOpen,  setModalOpen]  = useState(false);
+  const [projects,       setProjects]       = useState<WebsiteProject[]>([]);
+  const [loading,        setLoading]        = useState(true);
+  const [modalOpen,      setModalOpen]      = useState(false);
+  const [editingProject, setEditingProject] = useState<WebsiteProject | null>(null);
+
+  const openCreate = () => { setEditingProject(null); setModalOpen(true); };
+  const openEdit   = (p: WebsiteProject) => { setEditingProject(p); setModalOpen(true); };
+  const closeModal = () => { setModalOpen(false); setEditingProject(null); };
 
   const fetchProjects = useCallback(async () => {
     if (!profile?.company_id) { setLoading(false); return; }
@@ -319,7 +393,7 @@ export default function WebsiteProjectsPage() {
 
         <button
           type="button"
-          onClick={() => setModalOpen(true)}
+          onClick={openCreate}
           className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 transition-colors"
         >
           <Plus className="h-4 w-4" />
@@ -404,6 +478,17 @@ export default function WebsiteProjectsPage() {
                     <td className="px-5 py-4 whitespace-nowrap text-sm text-gray-500">
                       {formatDeadline(p.deadline)}
                     </td>
+                    <td className="px-5 py-4 whitespace-nowrap text-right">
+                      <button
+                        type="button"
+                        onClick={() => openEdit(p)}
+                        title="Edit project"
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 transition-colors"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                        Edit
+                      </button>
+                    </td>
                   </tr>
                 ))
               )}
@@ -419,12 +504,13 @@ export default function WebsiteProjectsPage() {
         )}
       </div>
 
-      {/* ── Modal ──────────────────────────────────────────────────────────── */}
-      <NewProjectModal
+      {/* ── Modal (create + edit) ──────────────────────────────────────────── */}
+      <ProjectModal
         open={modalOpen}
-        onClose={() => setModalOpen(false)}
+        onClose={closeModal}
         onSuccess={fetchProjects}
         companyId={profile?.company_id ?? null}
+        editProject={editingProject}
       />
 
     </div>
