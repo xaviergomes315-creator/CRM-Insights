@@ -8,7 +8,7 @@ import {
 import { Button } from "@/components/ui/button";
 
 export default function DashboardLayout() {
-  const { profile, signOut } = useAuth();
+  const { profile, signOut, isAdmin } = useAuth();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const location = useLocation();
 
@@ -20,11 +20,12 @@ export default function DashboardLayout() {
 
   // Enterprise Sidebar Modules
   const navItems = [
-    { name: "Dashboard", href: "/",        icon: LayoutDashboard },
-    { name: "Leads",     href: "/leads",   icon: Users           },
-    { name: "Tasks",     href: "/tasks",   icon: CheckSquare     },
-    { name: "HR",        href: "/hr",      icon: Briefcase       },
-    { name: "Analytics", href: "/analytics", icon: PieChart      },
+    { name: "Dashboard", href: "/",          icon: LayoutDashboard },
+    { name: "Leads",     href: "/leads",     icon: Users           },
+    { name: "Tasks",     href: "/tasks",     icon: CheckSquare     },
+    { name: "HR",        href: "/hr",        icon: Briefcase       },
+    { name: "Analytics", href: "/analytics", icon: PieChart        },
+    ...(isAdmin ? [{ name: "Settings", href: "/settings", icon: Settings }] : []),
   ];
 
   return (

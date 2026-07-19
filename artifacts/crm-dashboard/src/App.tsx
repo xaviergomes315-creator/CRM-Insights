@@ -24,6 +24,7 @@ import ClientPortal from '@/pages/ClientPortal';
 import Integrations from '@/pages/Integrations';
 import PublicLeadForm from '@/pages/PublicLeadForm';
 import HRPage from '@/pages/HRPage';
+import SettingsPage from '@/pages/SettingsPage';
 import NotFound from '@/pages/not-found';
 
 const queryClient = new QueryClient();
@@ -63,6 +64,7 @@ function App() {
                         <Route path="/invoices"     element={<InvoicePage />}   />
                         <Route path="/admin"        element={<AdminPage />}     />
                         <Route path="/integrations" element={<Integrations />}  />
+                        <Route path="/settings"     element={<SettingsPage />}  />
                       </Route>
 
                       {/* ── Accessible to all authenticated users ──────── */}
