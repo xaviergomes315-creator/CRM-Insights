@@ -1,114 +1,87 @@
-import {
-  createContext,
-  useContext,
-  useState,
-  useCallback,
-  type ReactNode,
-} from 'react';
+import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { Session, User } from "@supabase/supabase-js";
+import { supabase } from "@/lib/supabase";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-export type UserRole = 'Admin' | 'Telecaller';
-
-export interface AuthUser {
-  id:    string;
-  email: string;
-  name:  string;
-  role:  UserRole;
+interface UserProfile {
+  id: string;
+  full_name: string;
+  role: 'super_admin' | 'company_admin' | 'manager' | 'employee';
+  company_id: string | null;
 }
 
 interface AuthContextType {
-  user:            AuthUser | null;
-  login:           (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
-  logout:          () => void;
-  isAuthenticated: boolean;
-  isAdmin:         boolean;
-  isTelecaller:    boolean;
+  session: Session | null;
+  user: User | null;
+  profile: UserProfile | null;
+  isLoading: boolean;
+  signOut: () => Promise<void>;
 }
 
-// ─── Mock credentials ─────────────────────────────────────────────────────────
-// Replace with Supabase Auth when ready — only the login() function changes.
-
-type MockUser = AuthUser & { password: string };
-
-export const MOCK_USERS: MockUser[] = [
-  { id: '1', email: 'admin@test.com',       password: 'admin123', name: 'Admin User',  role: 'Admin'      },
-  { id: '2', email: 'telecaller@test.com',  password: 'tele123',  name: 'Ravi Kumar',  role: 'Telecaller' },
-  { id: '3', email: 'tele2@test.com',       password: 'tele123',  name: 'Sunita Rao',  role: 'Telecaller' },
-];
-
-// Safe user list for Admin Panel (no passwords)
-export const ALL_USERS: AuthUser[] = MOCK_USERS.map(({ password: _p, ...u }) => u);
-
-const STORAGE_KEY = 'crm_auth_user';
-
-// ─── Phone masking ────────────────────────────────────────────────────────────
-// Exported so Leads, Pipeline, WhatsApp can mask for Telecaller view.
-// The *real* number is always passed to tel:/wa.me links — only display is masked.
-
-export function maskPhone(phone: string): string {
-  const digits = phone.replace(/\D/g, '');
-  if (digits.length >= 10) {
-    const local = digits.slice(-10);
-    return `+91-${local.slice(0, 3)}XX-XXXXX`;
-  }
-  return `${phone.slice(0, 5)}XX-XXXXX`;
-}
-
-// ─── Context ──────────────────────────────────────────────────────────────────
-
-const AuthContext = createContext<AuthContextType | null>(null);
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  // Restore session from localStorage on first render
-  const [user, setUser] = useState<AuthUser | null>(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      return raw ? (JSON.parse(raw) as AuthUser) : null;
-    } catch {
-      return null;
-    }
-  });
+  const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const login = useCallback(
-    async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
-      const found = MOCK_USERS.find(
-        u => u.email.toLowerCase() === email.trim().toLowerCase() && u.password === password,
-      );
-      if (!found) {
-        return { success: false, error: 'Invalid email or password. Please try again.' };
+  useEffect(() => {
+    // 1. Initial session fetch karna
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+      if (session?.user) fetchProfile(session.user.id);
+      else setIsLoading(false);
+    });
+
+    // 2. Login/Logout changes ko sunna (listen karna)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        fetchProfile(session.user.id);
+      } else {
+        setProfile(null);
+        setIsLoading(false);
       }
-      const authUser: AuthUser = { id: found.id, email: found.email, name: found.name, role: found.role };
-      setUser(authUser);
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(authUser)); } catch { /* quota exceeded */ }
-      return { success: true };
-    },
-    [],
-  );
+    });
 
-  const logout = useCallback(() => {
-    setUser(null);
-    try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+    return () => subscription.unsubscribe();
   }, []);
 
+  // 3. Database se User ka Naya Profile (Role & Company) fetch karna
+  const fetchProfile = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+        
+      if (error) throw error;
+      setProfile(data as UserProfile);
+    } catch (error) {
+      console.error("Error fetching user profile:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const signOut = async () => {
+    await supabase.auth.signOut();
+  };
+
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        login,
-        logout,
-        isAuthenticated: user !== null,
-        isAdmin:         user?.role === 'Admin',
-        isTelecaller:    user?.role === 'Telecaller',
-      }}
-    >
+    <AuthContext.Provider value={{ session, user, profile, isLoading, signOut }}>
       {children}
     </AuthContext.Provider>
   );
 }
 
 export function useAuth() {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuth must be used inside <AuthProvider>');
-  return ctx;
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error("useAuth must be used within an AuthProvider");
+  }
+  return context;
 }
