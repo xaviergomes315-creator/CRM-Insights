@@ -1,13 +1,47 @@
+import { useState, useEffect, useCallback } from 'react';
 import { clsx } from 'clsx';
 import { useNavigate } from 'react-router-dom';
 import {
   AlertCircle, Clock, CheckCircle2, CalendarDays, Phone, ArrowRight,
   Users, TrendingUp, FileText, Kanban, ShieldCheck, ShieldAlert,
-  Trophy, Medal,
+  Trophy, Medal, UserCheck, Briefcase, DollarSign, Activity,
+  TrendingDown, FileCheck,
 } from 'lucide-react';
+import {
+  BarChart, Bar, LineChart, Line, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+} from 'recharts';
 import { useLeads, TELECALLER_POOL } from '@/contexts/LeadsContext';
 import { useTasks, type Task } from '@/contexts/TasksContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/lib/supabase';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface DbMetrics {
+  totalLeads:      number;
+  activeEmployees: number;
+  totalInvoices:   number;
+  totalRevenue:    number;
+}
+
+interface LeadStatusBar {
+  status: string;
+  count:  number;
+}
+
+interface MonthRevenue {
+  month:   string;
+  revenue: number;
+}
+
+interface ActivityItem {
+  id:    string;
+  type:  'lead' | 'invoice' | 'attendance';
+  label: string;
+  sub:   string;
+  time:  string;
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -34,6 +68,162 @@ function fmtTime(timeStr: string) {
   return `${((h % 12) || 12)}:${String(m).padStart(2, '0')} ${ampm}`;
 }
 
+function fmtCurrency(n: number) {
+  if (n >= 1_00_000) return `₹${(n / 1_00_000).toFixed(1)}L`;
+  if (n >= 1_000)    return `₹${(n / 1_000).toFixed(1)}K`;
+  return `₹${n.toLocaleString('en-IN')}`;
+}
+
+function timeAgo(iso: string) {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1)  return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24)  return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
+}
+
+const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function monthKey(iso: string) {
+  const d = new Date(iso);
+  return `${MONTH_ABBR[d.getMonth()]} '${String(d.getFullYear()).slice(2)}`;
+}
+
+// ─── Status colour map for bar chart ─────────────────────────────────────────
+
+const STATUS_COLORS: Record<string, string> = {
+  New:             '#6366f1',
+  Interested:      '#8b5cf6',
+  'Demo Scheduled':'#3b82f6',
+  Closed:          '#10b981',
+  'Not Interested':'#ef4444',
+  'Follow-up':     '#f59e0b',
+};
+function statusColor(s: string) {
+  return STATUS_COLORS[s] ?? '#94a3b8';
+}
+
+// ─── Data fetch hook ──────────────────────────────────────────────────────────
+
+function useDashboardData() {
+  const [metrics,    setMetrics]    = useState<DbMetrics | null>(null);
+  const [leadsBars,  setLeadsBars]  = useState<LeadStatusBar[]>([]);
+  const [revLine,    setRevLine]    = useState<MonthRevenue[]>([]);
+  const [activities, setActivities] = useState<ActivityItem[]>([]);
+  const [loading,    setLoading]    = useState(true);
+
+  const fetch = useCallback(async () => {
+    setLoading(true);
+
+    // ── 1. Parallel counts ──────────────────────────────────────────────────
+    const [leadsRes, empRes, invRes] = await Promise.all([
+      supabase.from('leads')     .select('id, status, created_at, name'),
+      supabase.from('employees') .select('id, created_at, full_name'),
+      supabase.from('invoices')  .select('id, amount, status, created_at, client_name, invoice_number'),
+    ]);
+
+    // ── 2. Metrics ──────────────────────────────────────────────────────────
+    const allLeads    = (leadsRes.data    ?? []) as { id:string; status:string; created_at:string; name?:string }[];
+    const allEmps     = (empRes.data      ?? []) as { id:string; created_at:string; full_name:string }[];
+    const allInvoices = (invRes.data      ?? []) as { id:string; amount:number; status:string; created_at:string; client_name:string; invoice_number:string }[];
+
+    const totalRevenue = allInvoices
+      .filter(i => i.status === 'Paid')
+      .reduce((s, i) => s + Number(i.amount), 0);
+
+    setMetrics({
+      totalLeads:      allLeads.length,
+      activeEmployees: allEmps.length,
+      totalInvoices:   allInvoices.length,
+      totalRevenue,
+    });
+
+    // ── 3. Leads by status (bar chart) ──────────────────────────────────────
+    const statusCount: Record<string, number> = {};
+    for (const l of allLeads) {
+      statusCount[l.status] = (statusCount[l.status] ?? 0) + 1;
+    }
+    setLeadsBars(
+      Object.entries(statusCount)
+        .map(([status, count]) => ({ status, count }))
+        .sort((a, b) => b.count - a.count),
+    );
+
+    // ── 4. Monthly revenue — last 6 months (line chart) ─────────────────────
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5);
+    sixMonthsAgo.setDate(1);
+
+    const revenueByMonth: Record<string, number> = {};
+    // Pre-fill last 6 months so months with no data still show
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date();
+      d.setMonth(d.getMonth() - i);
+      revenueByMonth[monthKey(d.toISOString())] = 0;
+    }
+    for (const inv of allInvoices) {
+      if (inv.status === 'Paid' && new Date(inv.created_at) >= sixMonthsAgo) {
+        const mk = monthKey(inv.created_at);
+        revenueByMonth[mk] = (revenueByMonth[mk] ?? 0) + Number(inv.amount);
+      }
+    }
+    setRevLine(Object.entries(revenueByMonth).map(([month, revenue]) => ({ month, revenue })));
+
+    // ── 5. Recent activities (last 5 across 3 tables) ───────────────────────
+    const [attRes] = await Promise.all([
+      supabase
+        .from('attendance')
+        .select('id, created_at, status, employees(full_name)')
+        .order('created_at', { ascending: false })
+        .limit(5),
+    ]);
+    type AttRow = { id: string; created_at: string; status: string; employees: { full_name: string }[] | null };
+    const attRows = (attRes.data ?? []) as unknown as AttRow[];
+
+    const feed: ActivityItem[] = [
+      ...allLeads
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        .slice(0, 5)
+        .map(l => ({
+          id:    `lead-${l.id}`,
+          type:  'lead' as const,
+          label: l.name ? `New lead: ${l.name}` : 'New lead added',
+          sub:   l.status ?? '',
+          time:  l.created_at,
+        })),
+      ...allInvoices
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        .slice(0, 5)
+        .map(i => ({
+          id:    `inv-${i.id}`,
+          type:  'invoice' as const,
+          label: `Invoice ${i.invoice_number}`,
+          sub:   `${i.client_name} · ${fmtCurrency(Number(i.amount))}`,
+          time:  i.created_at,
+        })),
+      ...attRows.map(a => ({
+        id:    `att-${a.id}`,
+        type:  'attendance' as const,
+        label: `Attendance: ${a.employees?.[0]?.full_name ?? 'Employee'}`,
+        sub:   a.status,
+        time:  a.created_at,
+      })),
+    ]
+      .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
+      .slice(0, 5);
+
+    setActivities(feed);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { fetch(); }, [fetch]);
+
+  return { metrics, leadsBars, revLine, activities, loading, refresh: fetch };
+}
+
 // ─── Stat card ────────────────────────────────────────────────────────────────
 
 function StatCard({
@@ -51,6 +241,21 @@ function StatCard({
         <p className="text-xs text-muted-foreground font-medium">{label}</p>
         <p className="text-2xl font-bold text-foreground mt-0.5">{value}</p>
         <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>
+      </div>
+    </div>
+  );
+}
+
+// ─── Skeleton card ────────────────────────────────────────────────────────────
+
+function SkeletonCard() {
+  return (
+    <div className="bg-card border border-border rounded-xl p-4 sm:p-5 flex items-start gap-4 animate-pulse">
+      <div className="h-10 w-10 rounded-xl bg-muted flex-shrink-0" />
+      <div className="flex-1 space-y-2 pt-1">
+        <div className="h-3 w-24 rounded bg-muted" />
+        <div className="h-6 w-16 rounded bg-muted" />
+        <div className="h-3 w-20 rounded bg-muted" />
       </div>
     </div>
   );
@@ -150,9 +355,9 @@ function TodaysTasks() {
 // ─── Telecaller Leaderboard (Admin-only) ──────────────────────────────────────
 
 const RANK_ICONS = [
-  <Trophy className="h-4 w-4 text-amber-500"  />,   // 1st
-  <Medal  className="h-4 w-4 text-slate-400"  />,   // 2nd
-  <Medal  className="h-4 w-4 text-orange-400" />,   // 3rd
+  <Trophy className="h-4 w-4 text-amber-500"  />,
+  <Medal  className="h-4 w-4 text-slate-400"  />,
+  <Medal  className="h-4 w-4 text-orange-400" />,
 ];
 
 function Leaderboard() {
@@ -279,6 +484,46 @@ function QuickAction({ label, sub, icon: Icon, color, onClick }: {
   );
 }
 
+// ─── Activity type config ─────────────────────────────────────────────────────
+
+const ACTIVITY_CONFIG = {
+  lead: {
+    icon:  Users,
+    color: 'bg-blue-50 text-blue-600',
+    ring:  'ring-blue-100',
+  },
+  invoice: {
+    icon:  FileCheck,
+    color: 'bg-emerald-50 text-emerald-600',
+    ring:  'ring-emerald-100',
+  },
+  attendance: {
+    icon:  UserCheck,
+    color: 'bg-violet-50 text-violet-600',
+    ring:  'ring-violet-100',
+  },
+};
+
+// ─── Custom chart tooltip ─────────────────────────────────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function ChartTooltip({ active, payload, label, currency = false }: {
+  active?: boolean;
+  payload?: any[];
+  label?: string;
+  currency?: boolean;
+}) {
+  if (!active || !payload?.length) return null;
+  const val: number | undefined = typeof payload[0].value === 'number' ? payload[0].value : undefined;
+  const display = currency && val != null ? fmtCurrency(val) : (val ?? payload[0].value);
+  return (
+    <div className="rounded-lg border border-border bg-card shadow-lg px-3 py-2 text-xs">
+      <p className="font-semibold text-foreground mb-0.5">{label}</p>
+      <p className="text-primary font-bold">{display}</p>
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
@@ -287,7 +532,7 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const { user, profile, isAdmin, isTelecaller } = useAuth();
 
-  // Telecallers only see their own leads in their stats
+  // Local context stats
   const myLeads      = isAdmin ? leads : leads.filter(l => l.assignedTo === user?.id);
   const totalLeads   = myLeads.length;
   const newLeads     = myLeads.filter(l => l.status === 'New').length;
@@ -297,10 +542,13 @@ export default function Dashboard() {
   const displayName = profile?.full_name || user?.email || 'User';
   const displayRole = profile?.role?.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) ?? '';
 
+  // DB analytics data
+  const { metrics, leadsBars, revLine, activities, loading } = useDashboardData();
+
   return (
     <div className="space-y-6">
 
-      {/* Welcome */}
+      {/* ── Welcome ──────────────────────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-foreground">
@@ -324,7 +572,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Role notices */}
+      {/* ── Role notices ─────────────────────────────────────────────────────── */}
       {isTelecaller && (
         <div className="flex items-center gap-2 rounded-lg bg-amber-50 border border-amber-200 px-4 py-2.5 text-xs text-amber-700">
           <ShieldAlert className="h-3.5 w-3.5 flex-shrink-0" />
@@ -342,45 +590,243 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        <StatCard
-          label={isTelecaller ? 'My Leads' : 'Total Leads'}
-          value={totalLeads}
-          sub={isTelecaller ? 'Assigned to you' : 'All pipeline stages'}
-          icon={Users}
-          color="bg-blue-50 text-blue-600"
-        />
-        <StatCard
-          label="New Leads"
-          value={newLeads}
-          sub="Awaiting contact"
-          icon={TrendingUp}
-          color="bg-violet-50 text-violet-600"
-        />
-        <StatCard
-          label="Closed Deals"
-          value={closedLeads}
-          sub="Conversion wins"
-          icon={CheckCircle2}
-          color="bg-emerald-50 text-emerald-600"
-        />
-        <StatCard
-          label="Overdue Tasks"
-          value={overdueTasks}
-          sub={overdueTasks > 0 ? 'Need attention now' : 'All caught up!'}
-          icon={AlertCircle}
-          color={overdueTasks > 0 ? 'bg-amber-50 text-amber-600' : 'bg-muted text-muted-foreground'}
-        />
+      {/* ── DB Metrics ───────────────────────────────────────────────────────── */}
+      <div>
+        <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+          Company Overview
+        </h2>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          {loading || !metrics ? (
+            [1,2,3,4].map(i => <SkeletonCard key={i} />)
+          ) : (
+            <>
+              <StatCard
+                label="Total Leads"
+                value={metrics.totalLeads}
+                sub="CRM pipeline"
+                icon={Users}
+                color="bg-blue-50 text-blue-600"
+              />
+              <StatCard
+                label="Active Employees"
+                value={metrics.activeEmployees}
+                sub="HR directory"
+                icon={Briefcase}
+                color="bg-violet-50 text-violet-600"
+              />
+              <StatCard
+                label="Total Invoices"
+                value={metrics.totalInvoices}
+                sub="Finance records"
+                icon={FileText}
+                color="bg-amber-50 text-amber-600"
+              />
+              <StatCard
+                label="Revenue Collected"
+                value={fmtCurrency(metrics.totalRevenue)}
+                sub="Paid invoices"
+                icon={DollarSign}
+                color="bg-emerald-50 text-emerald-600"
+              />
+            </>
+          )}
+        </div>
       </div>
 
-      {/* Leaderboard — Admin only */}
-      {isAdmin && <Leaderboard />}
+      {/* ── Pipeline stats (context-based, role-scoped) ───────────────────────── */}
+      <div>
+        <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+          {isTelecaller ? 'My Pipeline' : 'Pipeline Summary'}
+        </h2>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          <StatCard
+            label={isTelecaller ? 'My Leads' : 'Total Leads'}
+            value={totalLeads}
+            sub={isTelecaller ? 'Assigned to you' : 'All pipeline stages'}
+            icon={Users}
+            color="bg-blue-50 text-blue-600"
+          />
+          <StatCard
+            label="New Leads"
+            value={newLeads}
+            sub="Awaiting contact"
+            icon={TrendingUp}
+            color="bg-violet-50 text-violet-600"
+          />
+          <StatCard
+            label="Closed Deals"
+            value={closedLeads}
+            sub="Conversion wins"
+            icon={CheckCircle2}
+            color="bg-emerald-50 text-emerald-600"
+          />
+          <StatCard
+            label="Overdue Tasks"
+            value={overdueTasks}
+            sub={overdueTasks > 0 ? 'Need attention now' : 'All caught up!'}
+            icon={AlertCircle}
+            color={overdueTasks > 0 ? 'bg-amber-50 text-amber-600' : 'bg-muted text-muted-foreground'}
+          />
+        </div>
+      </div>
 
-      {/* Today's Tasks widget */}
+      {/* ── Charts ───────────────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+
+        {/* Leads by Status — Bar chart */}
+        <div className="bg-card border border-border rounded-xl overflow-hidden">
+          <div className="flex items-center gap-2 px-5 py-4 border-b border-border">
+            <TrendingDown className="h-4 w-4 text-primary" />
+            <h2 className="text-sm font-semibold text-foreground">Leads by Status</h2>
+          </div>
+          <div className="p-4">
+            {loading ? (
+              <div className="h-52 flex items-center justify-center">
+                <div className="h-8 w-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+              </div>
+            ) : leadsBars.length === 0 ? (
+              <div className="h-52 flex flex-col items-center justify-center text-muted-foreground">
+                <Users className="h-8 w-8 opacity-25 mb-2" />
+                <p className="text-sm">No leads data yet</p>
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={210}>
+                <BarChart data={leadsBars} margin={{ top: 4, right: 8, left: -16, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                  <XAxis
+                    dataKey="status"
+                    tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <YAxis
+                    allowDecimals={false}
+                    tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <Tooltip content={(p) => <ChartTooltip {...p} />} cursor={{ fill: 'var(--muted)', opacity: 0.4 }} />
+                  <Bar dataKey="count" radius={[6, 6, 0, 0]} maxBarSize={48}>
+                    {leadsBars.map((entry) => (
+                      <Cell key={entry.status} fill={statusColor(entry.status)} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+
+        {/* Monthly Revenue — Line chart */}
+        <div className="bg-card border border-border rounded-xl overflow-hidden">
+          <div className="flex items-center gap-2 px-5 py-4 border-b border-border">
+            <TrendingUp className="h-4 w-4 text-emerald-600" />
+            <h2 className="text-sm font-semibold text-foreground">Monthly Revenue</h2>
+            <span className="ml-auto text-xs text-muted-foreground">Paid invoices · last 6 months</span>
+          </div>
+          <div className="p-4">
+            {loading ? (
+              <div className="h-52 flex items-center justify-center">
+                <div className="h-8 w-8 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin" />
+              </div>
+            ) : revLine.every(r => r.revenue === 0) ? (
+              <div className="h-52 flex flex-col items-center justify-center text-muted-foreground">
+                <DollarSign className="h-8 w-8 opacity-25 mb-2" />
+                <p className="text-sm">No paid invoices yet</p>
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={210}>
+                <LineChart data={revLine} margin={{ top: 4, right: 8, left: -16, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                  <XAxis
+                    dataKey="month"
+                    tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <YAxis
+                    tickFormatter={v => fmtCurrency(v)}
+                    tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }}
+                    tickLine={false}
+                    axisLine={false}
+                    width={52}
+                  />
+                  <Tooltip content={<ChartTooltip currency />} />
+                  <Line
+                    type="monotone"
+                    dataKey="revenue"
+                    stroke="#10b981"
+                    strokeWidth={2.5}
+                    dot={{ r: 4, fill: '#10b981', strokeWidth: 0 }}
+                    activeDot={{ r: 6 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Recent Activities + Leaderboard ──────────────────────────────────── */}
+      <div className={clsx('grid gap-4', isAdmin ? 'grid-cols-1 xl:grid-cols-2' : 'grid-cols-1')}>
+
+        {/* Recent Activities feed */}
+        <div className="bg-card border border-border rounded-xl overflow-hidden">
+          <div className="flex items-center gap-2 px-5 py-4 border-b border-border">
+            <Activity className="h-4 w-4 text-primary" />
+            <h2 className="text-sm font-semibold text-foreground">Recent Activity</h2>
+          </div>
+
+          <div className="divide-y divide-border">
+            {loading ? (
+              [1,2,3,4,5].map(i => (
+                <div key={i} className="flex items-center gap-3 px-5 py-3.5 animate-pulse">
+                  <div className="h-8 w-8 rounded-full bg-muted flex-shrink-0" />
+                  <div className="flex-1 space-y-1.5">
+                    <div className="h-3 w-40 rounded bg-muted" />
+                    <div className="h-3 w-24 rounded bg-muted" />
+                  </div>
+                  <div className="h-3 w-10 rounded bg-muted" />
+                </div>
+              ))
+            ) : activities.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                <Activity className="h-8 w-8 opacity-25 mb-2" />
+                <p className="text-sm">No recent activity yet</p>
+              </div>
+            ) : (
+              activities.map(item => {
+                const cfg  = ACTIVITY_CONFIG[item.type];
+                const Icon = cfg.icon;
+                return (
+                  <div key={item.id} className="flex items-center gap-3 px-5 py-3.5 hover:bg-muted/30 transition-colors">
+                    <div className={clsx('flex h-8 w-8 items-center justify-center rounded-full flex-shrink-0 ring-2', cfg.color, cfg.ring)}>
+                      <Icon className="h-3.5 w-3.5" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-foreground truncate">{item.label}</p>
+                      {item.sub && (
+                        <p className="text-xs text-muted-foreground truncate">{item.sub}</p>
+                      )}
+                    </div>
+                    <span className="text-xs text-muted-foreground whitespace-nowrap flex-shrink-0">
+                      {timeAgo(item.time)}
+                    </span>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        {/* Leaderboard — Admin only */}
+        {isAdmin && <Leaderboard />}
+      </div>
+
+      {/* ── Today's Tasks widget ─────────────────────────────────────────────── */}
       <TodaysTasks />
 
-      {/* Quick actions */}
+      {/* ── Quick actions ────────────────────────────────────────────────────── */}
       <div>
         <h2 className="text-sm font-semibold text-foreground mb-3">Quick Actions</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
