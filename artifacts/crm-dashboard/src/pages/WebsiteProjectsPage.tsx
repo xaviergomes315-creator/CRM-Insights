@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, type FormEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { clsx } from 'clsx';
-import { Globe, Plus, X, FolderOpen, Pencil } from 'lucide-react';
+import { Globe, Plus, X, FolderOpen, Pencil, Eye } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 
@@ -352,6 +353,7 @@ function ProjectModal({ open, onClose, onSuccess, companyId, editProject }: Proj
 
 export default function WebsiteProjectsPage() {
   const { profile } = useAuth();
+  const navigate    = useNavigate();
 
   const [projects,       setProjects]       = useState<WebsiteProject[]>([]);
   const [loading,        setLoading]        = useState(true);
@@ -478,16 +480,27 @@ export default function WebsiteProjectsPage() {
                     <td className="px-5 py-4 whitespace-nowrap text-sm text-gray-500">
                       {formatDeadline(p.deadline)}
                     </td>
-                    <td className="px-5 py-4 whitespace-nowrap text-right">
-                      <button
-                        type="button"
-                        onClick={() => openEdit(p)}
-                        title="Edit project"
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 transition-colors"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                        Edit
-                      </button>
+                    <td className="px-5 py-4 whitespace-nowrap">
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/website-projects/${p.id}`)}
+                          title="View project"
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 transition-colors"
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                          View
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openEdit(p)}
+                          title="Edit project"
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 transition-colors"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                          Edit
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
