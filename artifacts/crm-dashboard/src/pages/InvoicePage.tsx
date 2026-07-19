@@ -1,26 +1,40 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { clsx } from 'clsx';
-import { Plus, Download, FileText, X, Receipt, ShieldAlert } from 'lucide-react';
+import { Plus, Download, FileText, X, Receipt, ShieldAlert, Loader2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/lib/supabase';
+import { toast } from 'sonner';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type InvoiceStatus = 'Paid' | 'Pending';
+type InvoiceStatus = 'Paid' | 'Pending' | 'Overdue';
 
 interface Invoice {
-  id: number;
-  invoiceNumber: string;
-  client: string;
-  amount: number;
-  date: string;       // ISO date
-  status: InvoiceStatus;
+  id:             string;   // UUID from Supabase
+  invoice_number: string;
+  client_name:    string;
+  amount:         number;
+  due_date:       string;   // ISO date (YYYY-MM-DD)
+  status:         InvoiceStatus;
+}
+
+interface InvoiceRow {
+  id:             string;
+  company_id:     string;
+  invoice_number: string;
+  client_name:    string;
+  amount:         number;
+  status:         InvoiceStatus;
+  due_date:       string;
+  created_at:     string;
+  updated_at:     string;
 }
 
 interface InvoiceForm {
-  client: string;
-  amount: string;
-  date: string;
-  status: InvoiceStatus;
+  client_name: string;
+  amount:      string;
+  due_date:    string;
+  status:      InvoiceStatus;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -28,21 +42,15 @@ interface InvoiceForm {
 const STATUS_STYLES: Record<InvoiceStatus, string> = {
   Paid:    'bg-emerald-100 text-emerald-700 border border-emerald-200',
   Pending: 'bg-amber-100  text-amber-700  border border-amber-200',
+  Overdue: 'bg-red-100    text-red-700    border border-red-200',
 };
 
-const INITIAL_INVOICES: Invoice[] = [
-  { id: 1, invoiceNumber: 'INV-1001', client: 'Priya Sharma',  amount: 25000, date: '2026-07-01', status: 'Paid' },
-  { id: 2, invoiceNumber: 'INV-1002', client: 'Rahul Mehta',   amount: 42500, date: '2026-07-05', status: 'Pending' },
-  { id: 3, invoiceNumber: 'INV-1003', client: 'Anita Desai',   amount: 18750, date: '2026-07-08', status: 'Paid' },
-  { id: 4, invoiceNumber: 'INV-1004', client: 'Vikram Nair',   amount: 63000, date: '2026-07-12', status: 'Pending' },
-  { id: 5, invoiceNumber: 'INV-1005', client: 'Sunita Patel',  amount: 31200, date: '2026-07-15', status: 'Paid' },
-];
-
-const EMPTY_FORM: InvoiceForm = { client: '', amount: '', date: '', status: 'Pending' };
+const EMPTY_FORM: InvoiceForm = { client_name: '', amount: '', due_date: '', status: 'Pending' };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatDate(iso: string) {
+  if (!iso) return '—';
   const [y, m, d] = iso.split('-').map(Number);
   return new Date(y, m - 1, d).toLocaleDateString('en-IN', {
     day: '2-digit', month: 'short', year: 'numeric',
@@ -53,8 +61,12 @@ function formatCurrency(amount: number) {
   return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount);
 }
 
-function generateInvoiceNumber(invoices: Invoice[]) {
-  const max = Math.max(1000, ...invoices.map(i => parseInt(i.invoiceNumber.replace('INV-', ''), 10)));
+/** Generates the next invoice number based on the highest existing one. */
+function generateInvoiceNumber(invoices: Invoice[]): string {
+  const max = Math.max(
+    1000,
+    ...invoices.map(i => parseInt(i.invoice_number.replace('INV-', ''), 10) || 0),
+  );
   return `INV-${max + 1}`;
 }
 
@@ -65,7 +77,7 @@ function downloadInvoicePdf(invoice: Invoice) {
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>${invoice.invoiceNumber}</title>
+  <title>${invoice.invoice_number}</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: 'Segoe UI', Arial, sans-serif; color: #1e293b; background: #fff; padding: 48px; }
@@ -86,9 +98,9 @@ function downloadInvoicePdf(invoice: Invoice) {
     .total-row { background: #f8fafc; }
     .total-row td { font-weight: 700; font-size: 15px; color: #0f2d5e; }
     .status-badge { display: inline-block; padding: 3px 12px; border-radius: 999px; font-size: 12px; font-weight: 600;
-      background: ${invoice.status === 'Paid' ? '#d1fae5' : '#fef3c7'};
-      color: ${invoice.status === 'Paid' ? '#065f46' : '#92400e'};
-      border: 1px solid ${invoice.status === 'Paid' ? '#a7f3d0' : '#fde68a'};
+      background: ${invoice.status === 'Paid' ? '#d1fae5' : invoice.status === 'Overdue' ? '#fee2e2' : '#fef3c7'};
+      color: ${invoice.status === 'Paid' ? '#065f46' : invoice.status === 'Overdue' ? '#991b1b' : '#92400e'};
+      border: 1px solid ${invoice.status === 'Paid' ? '#a7f3d0' : invoice.status === 'Overdue' ? '#fecaca' : '#fde68a'};
     }
     .footer { border-top: 1px solid #e2e8f0; padding-top: 20px; font-size: 12px; color: #94a3b8; text-align: center; }
   </style>
@@ -97,15 +109,15 @@ function downloadInvoicePdf(invoice: Invoice) {
   <div class="header">
     <div class="brand">CRM Pro<small>Business Suite</small></div>
     <div class="inv-meta">
-      <h2>${invoice.invoiceNumber}</h2>
-      <p>Date: ${formatDate(invoice.date)}</p>
+      <h2>${invoice.invoice_number}</h2>
+      <p>Due: ${formatDate(invoice.due_date)}</p>
       <p style="margin-top:6px"><span class="status-badge">${invoice.status}</span></p>
     </div>
   </div>
 
   <div class="bill-to">
     <div class="section-title">Bill To</div>
-    <div class="name">${invoice.client}</div>
+    <div class="name">${invoice.client_name}</div>
   </div>
 
   <table>
@@ -137,7 +149,7 @@ function downloadInvoicePdf(invoice: Invoice) {
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href     = url;
-  a.download = `${invoice.invoiceNumber}.html`;
+  a.download = `${invoice.invoice_number}.html`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -147,13 +159,13 @@ function downloadInvoicePdf(invoice: Invoice) {
 function SummaryCards({ invoices }: { invoices: Invoice[] }) {
   const total   = invoices.reduce((s, i) => s + i.amount, 0);
   const paid    = invoices.filter(i => i.status === 'Paid').reduce((s, i) => s + i.amount, 0);
-  const pending = invoices.filter(i => i.status === 'Pending').reduce((s, i) => s + i.amount, 0);
+  const pending = invoices.filter(i => i.status !== 'Paid').reduce((s, i) => s + i.amount, 0);
 
   const cards = [
-    { label: 'Total Invoices', value: invoices.length.toString(), sub: 'All time', color: 'text-primary' },
-    { label: 'Total Revenue',  value: formatCurrency(total),     sub: 'Across all invoices', color: 'text-primary' },
-    { label: 'Amount Paid',    value: formatCurrency(paid),      sub: `${invoices.filter(i => i.status === 'Paid').length} invoices`, color: 'text-emerald-600' },
-    { label: 'Amount Pending', value: formatCurrency(pending),   sub: `${invoices.filter(i => i.status === 'Pending').length} invoices`, color: 'text-amber-600' },
+    { label: 'Total Invoices', value: invoices.length.toString(),  sub: 'All time',                                                   color: 'text-primary'       },
+    { label: 'Total Revenue',  value: formatCurrency(total),       sub: 'Across all invoices',                                        color: 'text-primary'       },
+    { label: 'Amount Paid',    value: formatCurrency(paid),        sub: `${invoices.filter(i => i.status === 'Paid').length} invoices`,    color: 'text-emerald-600'   },
+    { label: 'Amount Pending', value: formatCurrency(pending),     sub: `${invoices.filter(i => i.status !== 'Paid').length} invoices`,    color: 'text-amber-600'     },
   ];
 
   return (
@@ -172,11 +184,38 @@ function SummaryCards({ invoices }: { invoices: Invoice[] }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function InvoicePage() {
-  const { isTelecaller } = useAuth();
-  const [invoices, setInvoices] = useState<Invoice[]>(INITIAL_INVOICES);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [form, setForm]           = useState<InvoiceForm>(EMPTY_FORM);
-  const [errors, setErrors]       = useState<Partial<InvoiceForm>>({});
+  const { isTelecaller, profile } = useAuth();
+
+  const [invoices,   setInvoices]   = useState<Invoice[]>([]);
+  const [loading,    setLoading]    = useState(true);
+  const [saving,     setSaving]     = useState(false);
+  const [modalOpen,  setModalOpen]  = useState(false);
+  const [form,       setForm]       = useState<InvoiceForm>(EMPTY_FORM);
+  const [errors,     setErrors]     = useState<Partial<InvoiceForm>>({});
+
+  // ── Fetch invoices for this company ──────────────────────────────────────
+
+  const fetchInvoices = useCallback(async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from('invoices')
+      .select('id, invoice_number, client_name, amount, status, due_date')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('[InvoicePage] fetch error', error);
+      toast.error('Could not load invoices', { description: error.message });
+    } else {
+      setInvoices((data ?? []) as Invoice[]);
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    fetchInvoices();
+  }, [fetchInvoices]);
+
+  // ── Modal helpers ─────────────────────────────────────────────────────────
 
   const openModal = () => {
     setForm(EMPTY_FORM);
@@ -190,32 +229,60 @@ export default function InvoicePage() {
     setErrors({});
   };
 
+  // ── Validation ────────────────────────────────────────────────────────────
+
   const validate = (): Partial<InvoiceForm> => {
     const e: Partial<InvoiceForm> = {};
-    if (!form.client.trim())               e.client = 'Client name is required';
-    if (!form.amount.trim())               e.amount = 'Amount is required';
-    else if (isNaN(Number(form.amount)) || Number(form.amount) <= 0)
-                                           e.amount = 'Enter a valid amount';
-    if (!form.date)                        e.date   = 'Date is required';
+    if (!form.client_name.trim())                                   e.client_name = 'Client name is required';
+    if (!form.amount.trim())                                        e.amount      = 'Amount is required';
+    else if (isNaN(Number(form.amount)) || Number(form.amount) <= 0) e.amount    = 'Enter a valid amount';
+    if (!form.due_date)                                             e.due_date    = 'Date is required';
     return e;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // ── Submit → insert into Supabase ─────────────────────────────────────────
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const errs = validate();
     if (Object.keys(errs).length) { setErrors(errs); return; }
 
-    const newInvoice: Invoice = {
-      id:            Math.max(0, ...invoices.map(i => i.id)) + 1,
-      invoiceNumber: generateInvoiceNumber(invoices),
-      client:        form.client.trim(),
-      amount:        Number(form.amount),
-      date:          form.date,
-      status:        form.status,
-    };
-    setInvoices(prev => [newInvoice, ...prev]);
+    if (!profile?.company_id) {
+      toast.error('No company assigned to your profile. Contact your admin.');
+      return;
+    }
+
+    setSaving(true);
+
+    const newInvoiceNumber = generateInvoiceNumber(invoices);
+
+    const { data, error } = await supabase
+      .from('invoices')
+      .insert({
+        company_id:     profile.company_id,
+        invoice_number: newInvoiceNumber,
+        client_name:    form.client_name.trim(),
+        amount:         Number(form.amount),
+        status:         form.status,
+        due_date:       form.due_date,
+      })
+      .select('id, invoice_number, client_name, amount, status, due_date')
+      .single();
+
+    setSaving(false);
+
+    if (error) {
+      console.error('[InvoicePage] insert error', error);
+      toast.error('Failed to create invoice', { description: error.message });
+      return;
+    }
+
+    setInvoices(prev => [data as Invoice, ...prev]);
+    toast.success(`Invoice ${newInvoiceNumber} created`);
     closeModal();
   };
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-6">
@@ -224,7 +291,7 @@ export default function InvoicePage() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Invoices</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            {invoices.length} invoice{invoices.length !== 1 ? 's' : ''} total
+            {loading ? 'Loading…' : `${invoices.length} invoice${invoices.length !== 1 ? 's' : ''} total`}
           </p>
         </div>
         <button
@@ -239,7 +306,7 @@ export default function InvoicePage() {
       {/* Summary cards */}
       <SummaryCards invoices={invoices} />
 
-      {/* Invoices table — horizontally scrollable on mobile */}
+      {/* Invoices table */}
       <div>
         <h2 className="text-base font-semibold text-foreground mb-3 flex items-center gap-2">
           <Receipt className="h-4 w-4 text-primary" />
@@ -247,88 +314,104 @@ export default function InvoicePage() {
         </h2>
 
         <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[560px] text-sm">
-              <thead>
-                <tr className="border-b border-border bg-muted/40">
-                  <th className="px-5 py-3.5 text-left font-semibold text-muted-foreground tracking-wide text-xs uppercase">Invoice #</th>
-                  <th className="px-5 py-3.5 text-left font-semibold text-muted-foreground tracking-wide text-xs uppercase">Client</th>
-                  <th className="px-5 py-3.5 text-left font-semibold text-muted-foreground tracking-wide text-xs uppercase">Date</th>
-                  <th className="px-5 py-3.5 text-right font-semibold text-muted-foreground tracking-wide text-xs uppercase">Amount</th>
-                  <th className="px-5 py-3.5 text-left font-semibold text-muted-foreground tracking-wide text-xs uppercase">Status</th>
-                  <th className="px-5 py-3.5 text-right font-semibold text-muted-foreground tracking-wide text-xs uppercase">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {invoices.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="px-5 py-12 text-center text-muted-foreground text-sm">
-                      No invoices yet. Click &ldquo;Generate Invoice&rdquo; to create one.
-                    </td>
+          {loading ? (
+            /* ── Loading skeleton ── */
+            <div className="divide-y divide-border">
+              {[1, 2, 3, 4].map(i => (
+                <div key={i} className="flex items-center gap-4 px-5 py-4 animate-pulse">
+                  <div className="h-4 w-24 rounded bg-muted" />
+                  <div className="h-4 w-32 rounded bg-muted" />
+                  <div className="h-4 w-20 rounded bg-muted" />
+                  <div className="h-4 w-20 rounded bg-muted ml-auto" />
+                  <div className="h-6 w-16 rounded-full bg-muted" />
+                  <div className="h-8 w-28 rounded-lg bg-muted" />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[560px] text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/40">
+                    <th className="px-5 py-3.5 text-left font-semibold text-muted-foreground tracking-wide text-xs uppercase">Invoice #</th>
+                    <th className="px-5 py-3.5 text-left font-semibold text-muted-foreground tracking-wide text-xs uppercase">Client</th>
+                    <th className="px-5 py-3.5 text-left font-semibold text-muted-foreground tracking-wide text-xs uppercase">Due Date</th>
+                    <th className="px-5 py-3.5 text-right font-semibold text-muted-foreground tracking-wide text-xs uppercase">Amount</th>
+                    <th className="px-5 py-3.5 text-left font-semibold text-muted-foreground tracking-wide text-xs uppercase">Status</th>
+                    <th className="px-5 py-3.5 text-right font-semibold text-muted-foreground tracking-wide text-xs uppercase">Actions</th>
                   </tr>
-                ) : (
-                  invoices.map((invoice, idx) => (
-                    <tr
-                      key={invoice.id}
-                      className={clsx(
-                        'border-b border-border last:border-0 transition-colors hover:bg-muted/30',
-                        idx % 2 === 0 ? 'bg-card' : 'bg-muted/10',
-                      )}
-                    >
-                      {/* Invoice number */}
-                      <td className="px-5 py-4 whitespace-nowrap">
-                        <span className="inline-flex items-center gap-1.5 font-mono text-xs font-semibold text-primary">
-                          <FileText className="h-3.5 w-3.5" />
-                          {invoice.invoiceNumber}
-                        </span>
-                      </td>
-
-                      {/* Client */}
-                      <td className="px-5 py-4 font-medium text-foreground whitespace-nowrap">{invoice.client}</td>
-
-                      {/* Date */}
-                      <td className="px-5 py-4 text-muted-foreground whitespace-nowrap">{formatDate(invoice.date)}</td>
-
-                      {/* Amount */}
-                      <td className="px-5 py-4 text-right font-semibold text-foreground tabular-nums whitespace-nowrap">
-                        {formatCurrency(invoice.amount)}
-                      </td>
-
-                      {/* Status badge */}
-                      <td className="px-5 py-4 whitespace-nowrap">
-                        <span className={clsx('inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold', STATUS_STYLES[invoice.status])}>
-                          {invoice.status}
-                        </span>
-                      </td>
-
-                      {/* Download action — hidden for Telecaller role */}
-                      <td className="px-5 py-4">
-                        <div className="flex justify-end">
-                          {isTelecaller ? (
-                            <span
-                              title="Download disabled for Telecaller role"
-                              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted/50 px-3 py-2 text-xs font-medium text-muted-foreground cursor-not-allowed select-none min-h-[36px] whitespace-nowrap"
-                            >
-                              <ShieldAlert className="h-3 w-3" />
-                              Restricted
-                            </span>
-                          ) : (
-                            <button
-                              onClick={() => downloadInvoicePdf(invoice)}
-                              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium text-foreground hover:bg-muted transition-colors min-h-[36px] whitespace-nowrap"
-                            >
-                              <Download className="h-3 w-3" />
-                              Download PDF
-                            </button>
-                          )}
-                        </div>
+                </thead>
+                <tbody>
+                  {invoices.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-5 py-12 text-center text-muted-foreground text-sm">
+                        No invoices yet. Click &ldquo;Generate Invoice&rdquo; to create one.
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+                  ) : (
+                    invoices.map((invoice, idx) => (
+                      <tr
+                        key={invoice.id}
+                        className={clsx(
+                          'border-b border-border last:border-0 transition-colors hover:bg-muted/30',
+                          idx % 2 === 0 ? 'bg-card' : 'bg-muted/10',
+                        )}
+                      >
+                        {/* Invoice number */}
+                        <td className="px-5 py-4 whitespace-nowrap">
+                          <span className="inline-flex items-center gap-1.5 font-mono text-xs font-semibold text-primary">
+                            <FileText className="h-3.5 w-3.5" />
+                            {invoice.invoice_number}
+                          </span>
+                        </td>
+
+                        {/* Client */}
+                        <td className="px-5 py-4 font-medium text-foreground whitespace-nowrap">{invoice.client_name}</td>
+
+                        {/* Due date */}
+                        <td className="px-5 py-4 text-muted-foreground whitespace-nowrap">{formatDate(invoice.due_date)}</td>
+
+                        {/* Amount */}
+                        <td className="px-5 py-4 text-right font-semibold text-foreground tabular-nums whitespace-nowrap">
+                          {formatCurrency(invoice.amount)}
+                        </td>
+
+                        {/* Status badge */}
+                        <td className="px-5 py-4 whitespace-nowrap">
+                          <span className={clsx('inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold', STATUS_STYLES[invoice.status])}>
+                            {invoice.status}
+                          </span>
+                        </td>
+
+                        {/* Download action — hidden for Telecaller role */}
+                        <td className="px-5 py-4">
+                          <div className="flex justify-end">
+                            {isTelecaller ? (
+                              <span
+                                title="Download disabled for Telecaller role"
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted/50 px-3 py-2 text-xs font-medium text-muted-foreground cursor-not-allowed select-none min-h-[36px] whitespace-nowrap"
+                              >
+                                <ShieldAlert className="h-3 w-3" />
+                                Restricted
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => downloadInvoicePdf(invoice)}
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium text-foreground hover:bg-muted transition-colors min-h-[36px] whitespace-nowrap"
+                              >
+                                <Download className="h-3 w-3" />
+                                Download PDF
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
 
@@ -353,22 +436,22 @@ export default function InvoicePage() {
             <form onSubmit={handleSubmit} noValidate className="flex flex-col flex-1 min-h-0">
               <div className="px-6 py-5 space-y-4 overflow-y-auto flex-1">
 
-                {/* Client */}
+                {/* Client Name */}
                 <div>
                   <label className="block text-xs font-semibold text-foreground mb-1.5">
                     Client Name <span className="text-destructive">*</span>
                   </label>
                   <input
                     type="text"
-                    value={form.client}
-                    onChange={e => setForm(f => ({ ...f, client: e.target.value }))}
+                    value={form.client_name}
+                    onChange={e => setForm(f => ({ ...f, client_name: e.target.value }))}
                     placeholder="e.g. Priya Sharma"
                     className={clsx(
                       'w-full rounded-lg border bg-background px-3 py-3 text-sm text-foreground placeholder:text-muted-foreground outline-none transition-colors focus:ring-2 focus:ring-primary/30',
-                      errors.client ? 'border-destructive' : 'border-border focus:border-primary',
+                      errors.client_name ? 'border-destructive' : 'border-border focus:border-primary',
                     )}
                   />
-                  {errors.client && <p className="mt-1 text-xs text-destructive">{errors.client}</p>}
+                  {errors.client_name && <p className="mt-1 text-xs text-destructive">{errors.client_name}</p>}
                 </div>
 
                 {/* Amount */}
@@ -390,21 +473,21 @@ export default function InvoicePage() {
                   {errors.amount && <p className="mt-1 text-xs text-destructive">{errors.amount}</p>}
                 </div>
 
-                {/* Date */}
+                {/* Due Date */}
                 <div>
                   <label className="block text-xs font-semibold text-foreground mb-1.5">
-                    Invoice Date <span className="text-destructive">*</span>
+                    Due Date <span className="text-destructive">*</span>
                   </label>
                   <input
                     type="date"
-                    value={form.date}
-                    onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
+                    value={form.due_date}
+                    onChange={e => setForm(f => ({ ...f, due_date: e.target.value }))}
                     className={clsx(
                       'w-full rounded-lg border bg-background px-3 py-3 text-sm text-foreground outline-none transition-colors focus:ring-2 focus:ring-primary/30',
-                      errors.date ? 'border-destructive' : 'border-border focus:border-primary',
+                      errors.due_date ? 'border-destructive' : 'border-border focus:border-primary',
                     )}
                   />
-                  {errors.date && <p className="mt-1 text-xs text-destructive">{errors.date}</p>}
+                  {errors.due_date && <p className="mt-1 text-xs text-destructive">{errors.due_date}</p>}
                 </div>
 
                 {/* Status */}
@@ -417,6 +500,7 @@ export default function InvoicePage() {
                   >
                     <option value="Pending">Pending</option>
                     <option value="Paid">Paid</option>
+                    <option value="Overdue">Overdue</option>
                   </select>
                 </div>
               </div>
@@ -432,9 +516,11 @@ export default function InvoicePage() {
                 </button>
                 <button
                   type="submit"
-                  className="w-full sm:w-auto rounded-lg bg-primary px-4 py-3 sm:py-2 text-sm font-medium text-primary-foreground hover:opacity-90 transition-opacity"
+                  disabled={saving}
+                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-3 sm:py-2 text-sm font-medium text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-60"
                 >
-                  Generate Invoice
+                  {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {saving ? 'Saving…' : 'Generate Invoice'}
                 </button>
               </div>
             </form>
