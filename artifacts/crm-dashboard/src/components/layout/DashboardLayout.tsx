@@ -3,7 +3,7 @@ import { Outlet, Link, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { 
   LayoutDashboard, Users, CheckSquare, PieChart, 
-  Settings, LogOut, Menu, X, Bell, Briefcase, UserCog,
+  Settings, LogOut, Menu, X, Bell, Briefcase, UserCog, Globe,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -23,8 +23,9 @@ export default function DashboardLayout() {
     { name: "Dashboard", href: "/",          icon: LayoutDashboard },
     { name: "Leads",     href: "/leads",     icon: Users           },
     { name: "Tasks",     href: "/tasks",     icon: CheckSquare     },
-    { name: "HR",        href: "/hr",        icon: Briefcase       },
-    { name: "Analytics", href: "/analytics", icon: PieChart        },
+    { name: "HR",               href: "/hr",               icon: Briefcase },
+    { name: "Website Projects", href: "/website-projects", icon: Globe     },
+    { name: "Analytics",        href: "/analytics",        icon: PieChart  },
     ...(isAdmin ? [
       { name: "Users",    href: "/users",    icon: UserCog  },
       { name: "Settings", href: "/settings", icon: Settings },

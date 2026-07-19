@@ -27,6 +27,7 @@ import Integrations from '@/pages/Integrations';
 import PublicLeadForm from '@/pages/PublicLeadForm';
 import HRPage from '@/pages/HRPage';
 import SettingsPage from '@/pages/SettingsPage';
+import WebsiteProjectsPage from '@/pages/WebsiteProjectsPage';
 import NotFound from '@/pages/not-found';
 
 const queryClient = new QueryClient();
@@ -60,7 +61,8 @@ function App() {
                       <Route path="/proposals"    element={<ProposalPage />}  />
                       <Route path="/whatsapp"     element={<WhatsAppPage />}  />
                       <Route path="/social-media" element={<SocialMediaPage />}/>
-                      <Route path="/hr"           element={<HRPage />}        />
+                      <Route path="/hr"              element={<HRPage />}              />
+                      <Route path="/website-projects" element={<WebsiteProjectsPage />} />
 
                       {/* ── Admin only ─────────────────────────────────── */}
                       <Route element={<ProtectedRoute adminOnly />}>
