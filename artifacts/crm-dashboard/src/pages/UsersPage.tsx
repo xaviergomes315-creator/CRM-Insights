@@ -326,7 +326,7 @@ export default function UsersPage() {
     setLoading(true);
     const { data, error } = await supabase
       .from('user_profiles')
-      .select('id, full_name, role, company_id, avatar_url, created_at, updated_at')
+      .select('id, full_name, role, company_id, created_at')
       .eq('company_id', profile.company_id)
       .order('full_name', { ascending: true });
     if (!error && data) setMembers(data as UserProfile[]);

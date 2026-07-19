@@ -26,10 +26,13 @@ export const supabase = createClient(url ?? "", key ?? "");
 export interface CompanyRow {
   id: string;          // uuid
   name: string;
-  slug: string;
-  plan: "free" | "starter" | "pro" | "enterprise";
+  gst_number: string | null;
+  address: string | null;
   created_at: string;  // timestamptz
-  updated_at: string;
+  // slug, plan, updated_at are not present in the live schema
+  slug?: string;
+  plan?: "free" | "starter" | "pro" | "enterprise";
+  updated_at?: string;
 }
 
 /** public.user_profiles */
@@ -37,10 +40,11 @@ export interface UserProfileRow {
   id: string;          // uuid — references auth.users(id)
   company_id: string | null;
   full_name: string;
-  avatar_url: string | null;
   role: UserRole;
   created_at: string;
-  updated_at: string;
+  // avatar_url and updated_at are not present in the live schema
+  avatar_url?: string | null;
+  updated_at?: string;
 }
 
 /** public.leads */

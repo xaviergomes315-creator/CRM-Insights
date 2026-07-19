@@ -20,9 +20,10 @@ export interface UserProfile {
   full_name: string;
   role: UserRole;
   company_id: string | null;
-  avatar_url: string | null;
   created_at: string;
-  updated_at: string;
+  // avatar_url and updated_at are not present in the live schema
+  avatar_url?: string | null;
+  updated_at?: string;
 }
 
 /** Convenience alias used by pages that need a flat user+profile shape */
