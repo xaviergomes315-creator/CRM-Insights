@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { useLeads, TELECALLER_POOL } from '@/contexts/LeadsContext';
 import { useTasks, type Task } from '@/contexts/TasksContext';
-import { useAuth, ALL_USERS } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/AuthContext';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -158,19 +158,16 @@ const RANK_ICONS = [
 function Leaderboard() {
   const { leads } = useLeads();
 
-  // Build stats for every telecaller in the pool
   const rows = TELECALLER_POOL.map(tc => {
-    const user        = ALL_USERS.find(u => u.id === tc.id);
-    const assigned    = leads.filter(l => l.assignedTo === tc.id);
-    const closed      = assigned.filter(l => l.status === 'Closed').length;
-    const interested  = assigned.filter(l => l.status === 'Interested' || l.status === 'Demo Scheduled').length;
-    const rate        = assigned.length > 0 ? Math.round((closed / assigned.length) * 100) : 0;
-    return { id: tc.id, name: user?.name ?? tc.name, assigned: assigned.length, closed, interested, rate };
+    const assigned   = leads.filter(l => l.assignedTo === tc.id);
+    const closed     = assigned.filter(l => l.status === 'Closed').length;
+    const interested = assigned.filter(l => l.status === 'Interested' || l.status === 'Demo Scheduled').length;
+    const rate       = assigned.length > 0 ? Math.round((closed / assigned.length) * 100) : 0;
+    return { id: tc.id, name: tc.name, assigned: assigned.length, closed, interested, rate };
   }).sort((a, b) => b.closed - a.closed || b.rate - a.rate);
 
   return (
     <div className="bg-card border border-border rounded-xl overflow-hidden">
-      {/* Header */}
       <div className="flex items-center gap-2 px-5 py-4 border-b border-border">
         <Trophy className="h-4 w-4 text-amber-500" />
         <h2 className="text-sm font-semibold text-foreground">Telecaller Leaderboard</h2>
@@ -179,7 +176,6 @@ function Leaderboard() {
         </span>
       </div>
 
-      {/* Table */}
       <div className="overflow-x-auto">
         <table className="w-full text-sm min-w-[480px]">
           <thead>
@@ -201,15 +197,12 @@ function Leaderboard() {
                   rank === 0 ? 'bg-amber-50/60' : 'hover:bg-muted/20',
                 )}
               >
-                {/* Rank */}
                 <td className="px-5 py-4 text-center">
                   {rank < 3
                     ? <span className="flex justify-center">{RANK_ICONS[rank]}</span>
                     : <span className="text-xs text-muted-foreground font-semibold">{rank + 1}</span>
                   }
                 </td>
-
-                {/* Name */}
                 <td className="px-5 py-4">
                   <div className="flex items-center gap-2.5">
                     <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-bold flex-shrink-0">
@@ -218,18 +211,12 @@ function Leaderboard() {
                     <span className="font-semibold text-foreground text-sm">{row.name}</span>
                   </div>
                 </td>
-
-                {/* Assigned */}
                 <td className="px-5 py-4 text-center">
                   <span className="text-sm font-semibold text-foreground tabular-nums">{row.assigned}</span>
                 </td>
-
-                {/* In progress */}
                 <td className="px-5 py-4 text-center">
                   <span className="text-sm font-semibold text-violet-600 tabular-nums">{row.interested}</span>
                 </td>
-
-                {/* Closed */}
                 <td className="px-5 py-4 text-center">
                   <span className={clsx(
                     'inline-flex items-center justify-center rounded-full px-2.5 py-0.5 text-xs font-bold tabular-nums',
@@ -240,8 +227,6 @@ function Leaderboard() {
                     {row.closed}
                   </span>
                 </td>
-
-                {/* Conversion rate bar */}
                 <td className="px-5 py-4">
                   <div className="flex items-center gap-2">
                     <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden min-w-[60px]">
@@ -261,7 +246,7 @@ function Leaderboard() {
             {rows.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-5 py-10 text-center text-sm text-muted-foreground">
-                  No telecallers in the system yet.
+                  No employees assigned to leads yet.
                 </td>
               </tr>
             )}
@@ -300,14 +285,17 @@ export default function Dashboard() {
   const { leads } = useLeads();
   const { tasks } = useTasks();
   const navigate = useNavigate();
-  const { user, isAdmin, isTelecaller } = useAuth();
+  const { user, profile, isAdmin, isTelecaller } = useAuth();
 
-  // Telecallers only see their own leads in their stats too
+  // Telecallers only see their own leads in their stats
   const myLeads      = isAdmin ? leads : leads.filter(l => l.assignedTo === user?.id);
   const totalLeads   = myLeads.length;
   const newLeads     = myLeads.filter(l => l.status === 'New').length;
   const closedLeads  = myLeads.filter(l => l.status === 'Closed').length;
   const overdueTasks = tasks.filter(t => getTaskStatus(t) === 'overdue').length;
+
+  const displayName = profile?.full_name || user?.email || 'User';
+  const displayRole = profile?.role?.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) ?? '';
 
   return (
     <div className="space-y-6">
@@ -316,7 +304,7 @@ export default function Dashboard() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-foreground">
-            Welcome back, {user?.name ?? 'User'} 👋
+            Welcome back, {displayName} 👋
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
@@ -332,7 +320,7 @@ export default function Dashboard() {
             ? <ShieldAlert className="h-3.5 w-3.5" />
             : <ShieldCheck className="h-3.5 w-3.5" />
           }
-          {user?.role} Account
+          {displayRole} Account
         </div>
       </div>
 
@@ -396,7 +384,7 @@ export default function Dashboard() {
       <div>
         <h2 className="text-sm font-semibold text-foreground mb-3">Quick Actions</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          <QuickAction label="Pipeline View"  sub="Manage leads on Kanban board" icon={Kanban}      color="bg-violet-50 text-violet-600"  onClick={() => navigate('/pipeline')}  />
+          <QuickAction label="Pipeline View"  sub="Manage leads on Kanban board" icon={Kanban}       color="bg-violet-50 text-violet-600"  onClick={() => navigate('/pipeline')}  />
           <QuickAction label="New Proposal"   sub="Build & share a proposal"     icon={FileText}    color="bg-blue-50 text-blue-600"      onClick={() => navigate('/proposals')} />
           <QuickAction label="Add Follow-up"  sub="Schedule a call reminder"     icon={CalendarDays} color="bg-emerald-50 text-emerald-600" onClick={() => navigate('/tasks')}     />
         </div>

@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import { toast } from 'sonner';
-import { MOCK_USERS, useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { supabase, type LeadRow } from '@/lib/supabase';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -41,11 +41,10 @@ interface LeadsContextType {
   dismissArrivals: () => void;
 }
 
-// ─── Round-robin telecaller pool ─────────────────────────────────────────────
-
-export const TELECALLER_POOL: { id: string; name: string }[] = MOCK_USERS
-  .filter(u => u.role === 'Telecaller')
-  .map(u => ({ id: u.id, name: u.name }));
+// ─── Telecaller pool ──────────────────────────────────────────────────────────
+// Populated at runtime from the user_profiles table (role = 'employee').
+// Pages that need the pool (Dashboard leaderboard, round-robin) read this ref.
+export let TELECALLER_POOL: { id: string; name: string }[] = [];
 
 // ─── Idle lead helpers ────────────────────────────────────────────────────────
 
@@ -93,14 +92,29 @@ function rowToLead(row: LeadRow): Lead {
 const LeadsContext = createContext<LeadsContextType | null>(null);
 
 export function LeadsProvider({ children }: { children: ReactNode }) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, profile } = useAuth();
 
   const [leads, setLeads]             = useState<Lead[]>([]);
   const [newArrivals, setNewArrivals] = useState<Lead[]>([]);
   const [loading, setLoading]         = useState(false);
 
-  // Round-robin ref — initialised to 0, corrected after first DB load
+  // Round-robin ref — corrected after first DB load
   const rrIndexRef = useRef(0);
+
+  // ── Fetch telecaller pool from DB ──────────────────────────────────────────
+  useEffect(() => {
+    if (!isAuthenticated || !profile?.company_id) return;
+    supabase
+      .from('user_profiles')
+      .select('id, full_name')
+      .eq('company_id', profile.company_id)
+      .eq('role', 'employee')
+      .then(({ data }) => {
+        if (data) {
+          TELECALLER_POOL = data.map(u => ({ id: u.id, name: u.full_name }));
+        }
+      });
+  }, [isAuthenticated, profile?.company_id]);
 
   // ── Initial load (only when authenticated) ──────────────────────────────────
 
@@ -156,6 +170,7 @@ export function LeadsProvider({ children }: { children: ReactNode }) {
     rrIndexRef.current = (rrIndexRef.current + 1) % poolSize;
 
     const row: Omit<LeadRow, 'id'> = {
+      company_id:       profile?.company_id ?? null,
       name:             data.name,
       email:            data.email,
       phone:            data.phone,
@@ -181,13 +196,12 @@ export function LeadsProvider({ children }: { children: ReactNode }) {
     const newLead = rowToLead(inserted as LeadRow);
     setLeads(prev => [newLead, ...prev]);
     setNewArrivals(prev => [newLead, ...prev]);
-  }, []);
+  }, [profile?.company_id]);
 
   const updateLead = useCallback(
     async (id: number, data: Partial<Omit<Lead, 'id' | 'addedAt'>>) => {
       const now = Date.now();
 
-      // Build the snake_case patch object
       const patch: Partial<LeadRow> & { last_activity_at: number } = {
         last_activity_at: now,
       };
@@ -210,7 +224,6 @@ export function LeadsProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      // Optimistic local update
       setLeads(prev =>
         prev.map(l =>
           l.id === id
@@ -237,8 +250,6 @@ export function LeadsProvider({ children }: { children: ReactNode }) {
   const dismissArrivals = useCallback(() => setNewArrivals([]), []);
 
   // ── Webhook SSE listener ────────────────────────────────────────────────────
-  // The backend now writes the lead to Supabase before broadcasting the SSE
-  // event, so here we only need to refresh our local state with the new row.
 
   useEffect(() => {
     let es: EventSource | null = null;
@@ -248,11 +259,9 @@ export function LeadsProvider({ children }: { children: ReactNode }) {
       es.addEventListener('new_lead', (evt: MessageEvent) => {
         try {
           const d = JSON.parse(evt.data) as Record<string, unknown>;
-          // The backend echoes the full DB row (snake_case) in the SSE payload
           if (d.id && d.name) {
             const newLead = rowToLead(d as unknown as LeadRow);
             setLeads(prev => {
-              // Avoid duplicates if the user is the one who submitted the form
               if (prev.some(l => l.id === newLead.id)) return prev;
               return [newLead, ...prev];
             });
@@ -260,7 +269,6 @@ export function LeadsProvider({ children }: { children: ReactNode }) {
               if (prev.some(l => l.id === newLead.id)) return prev;
               return [newLead, ...prev];
             });
-            // Advance rr index to stay in sync
             rrIndexRef.current =
               (rrIndexRef.current + 1) % Math.max(TELECALLER_POOL.length, 1);
           }

@@ -1,25 +1,52 @@
 /**
  * Supabase browser client — uses the public anon key.
- * RLS is disabled on leads/tasks tables so the anon key has full CRUD access.
+ * RLS is enforced on all tables via the policies in:
+ *   supabase/migrations/20240101000001_multi_tenant_rls.sql
  */
-import { createClient } from '@supabase/supabase-js';
+import { createClient } from "@supabase/supabase-js";
 
-const url  = import.meta.env.VITE_SUPABASE_URL  as string;
-const key  = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+// Defined here (DB-level concept) to avoid circular imports with AuthContext.
+export type UserRole = "super_admin" | "company_admin" | "manager" | "employee";
+
+const url = import.meta.env.VITE_SUPABASE_URL as string;
+const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
 if (!url || !key) {
   console.error(
-    '[Supabase] VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY is missing. ' +
-    'Add them as Replit Secrets and restart the dev server.',
+    "[Supabase] VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY is missing. " +
+      "Add them as Replit Secrets and restart the dev server.",
   );
 }
 
-export const supabase = createClient(url ?? '', key ?? '');
+export const supabase = createClient(url ?? "", key ?? "");
 
 // ─── Row types (snake_case as stored in Postgres) ─────────────────────────────
 
+/** public.companies */
+export interface CompanyRow {
+  id: string;          // uuid
+  name: string;
+  slug: string;
+  plan: "free" | "starter" | "pro" | "enterprise";
+  created_at: string;  // timestamptz
+  updated_at: string;
+}
+
+/** public.user_profiles */
+export interface UserProfileRow {
+  id: string;          // uuid — references auth.users(id)
+  company_id: string | null;
+  full_name: string;
+  avatar_url: string | null;
+  role: UserRole;
+  created_at: string;
+  updated_at: string;
+}
+
+/** public.leads */
 export interface LeadRow {
   id:               number;
+  company_id:       string | null;   // uuid
   name:             string;
   email:            string;
   phone:            string;
@@ -30,8 +57,10 @@ export interface LeadRow {
   last_activity_at: number;
 }
 
+/** public.tasks */
 export interface TaskRow {
   id:             number;
+  company_id:     string | null;   // uuid
   lead_id:        number;
   lead_name:      string;
   lead_phone:     string;

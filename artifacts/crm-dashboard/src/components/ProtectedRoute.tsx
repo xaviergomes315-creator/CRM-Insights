@@ -1,39 +1,96 @@
-import { Navigate } from "react-router-dom";
-import { useAuth } from "@/contexts/AuthContext";
 import React from "react";
+import { Navigate, Outlet } from "react-router-dom";
+import { useAuth, UserRole } from "@/contexts/AuthContext";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface ProtectedRouteProps {
-  children: React.ReactNode;
-  // Ye naya feature hai: Hum pages ko specific roles ke liye lock kar sakte hain
-  allowedRoles?: Array<'super_admin' | 'company_admin' | 'manager' | 'employee'>;
+  /**
+   * Render explicit children instead of <Outlet />.
+   * When used as a React Router layout route (`<Route element={<ProtectedRoute />}>`),
+   * omit this — nested routes are served via <Outlet />.
+   */
+  children?: React.ReactNode;
+
+  /**
+   * Restrict access to specific roles.
+   * If the authenticated user's role is not in this list, they are redirected to "/".
+   */
+  allowedRoles?: UserRole[];
+
+  /**
+   * Shorthand for allowedRoles: ['super_admin', 'company_admin'].
+   * Takes precedence over allowedRoles when both are provided.
+   */
+  adminOnly?: boolean;
 }
 
-export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) {
+// ─── Admin roles constant ─────────────────────────────────────────────────────
+
+const ADMIN_ROLES: UserRole[] = ["super_admin", "company_admin"];
+
+// ─── Loading screen ───────────────────────────────────────────────────────────
+
+function LoadingScreen() {
+  return (
+    <div className="flex h-screen w-full items-center justify-center bg-gray-50/50">
+      <div className="flex flex-col items-center gap-4">
+        <div className="h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+        <p className="text-sm font-medium text-gray-500">
+          Loading Enterprise Workspace…
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ─── Component ───────────────────────────────────────────────────────────────
+
+export default function ProtectedRoute({
+  children,
+  allowedRoles,
+  adminOnly = false,
+}: ProtectedRouteProps) {
   const { session, profile, isLoading } = useAuth();
 
-  // 1. Jab tak user ka data database se aa raha hai, loading screen dikhao
+  // 1. Show a loading screen while session / profile is being resolved.
+  //    This prevents a flash-redirect to /login on hard refresh.
   if (isLoading) {
-    return (
-      <div className="flex h-screen w-full items-center justify-center bg-gray-50/50">
-        <div className="flex flex-col items-center gap-4">
-          <div className="h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
-          <p className="text-sm text-gray-500 font-medium">Loading Enterprise Workspace...</p>
-        </div>
-      </div>
-    );
+    return <LoadingScreen />;
   }
 
-  // 2. Agar login nahi kiya hai, toh Login page par phenk do
+  // 2. Not authenticated — redirect to login.
   if (!session) {
     return <Navigate to="/login" replace />;
   }
 
-  // 3. Agar page par role restriction hai aur user ka role match nahi karta
-  if (allowedRoles && profile && !allowedRoles.includes(profile.role)) {
-    console.warn(`Access denied. User role '${profile.role}' lacks permission.`);
-    return <Navigate to="/" replace />; // Unauthorized access ko home par bhej do
+  // 3. Determine which roles are required for this route.
+  const requiredRoles: UserRole[] | undefined = adminOnly
+    ? ADMIN_ROLES
+    : allowedRoles;
+
+  // 4. Role check.
+  //    If a role restriction is active we MUST have the profile loaded before
+  //    granting access. Denying when profile is null closes the window where a
+  //    slow DB round-trip could let an unauthenticated role slip through.
+  if (requiredRoles && requiredRoles.length > 0) {
+    if (!profile) {
+      // Profile is still loading (fetchProfile is retrying in the background).
+      // Show the loading screen rather than flashing an unauthorized redirect.
+      return <LoadingScreen />;
+    }
+
+    if (!requiredRoles.includes(profile.role)) {
+      console.warn(
+        `[ProtectedRoute] Access denied. Role "${profile.role}" is not in [${requiredRoles.join(", ")}].`,
+      );
+      return <Navigate to="/" replace />;
+    }
   }
 
-  // 4. Sab sahi hai toh page dikha do
-  return <>{children}</>;
+  // 5. Authorized — render children or the nested route outlet.
+  return <>{children ?? <Outlet />}</>;
 }
+
+// Named re-export for consumers that prefer the named import style.
+export { ProtectedRoute };

@@ -7,4 +7,4 @@ export {
   useAuth as useUser,
   AuthProvider as UserProvider,
   maskPhone,
-} from './AuthContext';
+} from "./AuthContext";

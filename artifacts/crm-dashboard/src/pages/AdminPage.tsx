@@ -1,21 +1,24 @@
+import React, { useEffect, useState } from 'react';
 import { clsx } from 'clsx';
 import { ShieldCheck, Users, UserCog, Mail, BadgeCheck } from 'lucide-react';
-import { useAuth, ALL_USERS, type AuthUser } from '@/contexts/AuthContext';
+import { useAuth, type UserProfile } from '@/contexts/AuthContext';
+import { supabase } from '@/lib/supabase';
 
 // ─── Role badge ───────────────────────────────────────────────────────────────
 
-function RoleBadge({ role }: { role: AuthUser['role'] }) {
+function RoleBadge({ role }: { role: UserProfile['role'] }) {
+  const isAdmin = role === 'super_admin' || role === 'company_admin';
   return (
     <span
       className={clsx(
         'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold border',
-        role === 'Admin'
+        isAdmin
           ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
           : 'bg-amber-100 text-amber-700 border-amber-200',
       )}
     >
       <ShieldCheck className="h-3 w-3" />
-      {role}
+      {role.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
     </span>
   );
 }
@@ -41,10 +44,30 @@ function StatCard({ label, value, icon: Icon, color }: {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function AdminPage() {
-  const { user: currentUser } = useAuth();
+  const { user, profile } = useAuth();
 
-  const admins      = ALL_USERS.filter(u => u.role === 'Admin');
-  const telecallers = ALL_USERS.filter(u => u.role === 'Telecaller');
+  const [members, setMembers] = useState<UserProfile[]>([]);
+  const [loadingMembers, setLoadingMembers] = useState(true);
+
+  // Fetch all users in the same company
+  useEffect(() => {
+    if (!profile?.company_id) {
+      setLoadingMembers(false);
+      return;
+    }
+    supabase
+      .from('user_profiles')
+      .select('*')
+      .eq('company_id', profile.company_id)
+      .order('created_at', { ascending: true })
+      .then(({ data, error }) => {
+        if (!error && data) setMembers(data as UserProfile[]);
+        setLoadingMembers(false);
+      });
+  }, [profile?.company_id]);
+
+  const admins      = members.filter(u => u.role === 'super_admin' || u.role === 'company_admin');
+  const telecallers = members.filter(u => u.role === 'employee');
 
   return (
     <div className="space-y-6">
@@ -62,15 +85,15 @@ export default function AdminPage() {
         </div>
         <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 text-xs text-emerald-700 font-medium self-start">
           <ShieldCheck className="h-3.5 w-3.5" />
-          Logged in as {currentUser?.name}
+          Logged in as {profile?.full_name ?? user?.email}
         </div>
       </div>
 
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-        <StatCard label="Total Users"   value={ALL_USERS.length}      icon={Users}        color="bg-primary/10 text-primary"          />
-        <StatCard label="Admins"        value={admins.length}          icon={ShieldCheck}  color="bg-emerald-50 text-emerald-600"      />
-        <StatCard label="Telecallers"   value={telecallers.length}     icon={BadgeCheck}   color="bg-amber-50 text-amber-600"          />
+        <StatCard label="Total Users"  value={members.length}      icon={Users}       color="bg-primary/10 text-primary"       />
+        <StatCard label="Admins"       value={admins.length}        icon={ShieldCheck} color="bg-emerald-50 text-emerald-600"   />
+        <StatCard label="Employees"    value={telecallers.length}   icon={BadgeCheck}  color="bg-amber-50 text-amber-600"       />
       </div>
 
       {/* User management table */}
@@ -81,71 +104,79 @@ export default function AdminPage() {
         </div>
 
         <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[500px] text-sm">
-              <thead>
-                <tr className="border-b border-border bg-muted/40">
-                  <th className="px-5 py-3.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">#</th>
-                  <th className="px-5 py-3.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">Name</th>
-                  <th className="px-5 py-3.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">Email</th>
-                  <th className="px-5 py-3.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">Role</th>
-                  <th className="px-5 py-3.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {ALL_USERS.map((u, idx) => (
-                  <tr
-                    key={u.id}
-                    className={clsx(
-                      'border-b border-border last:border-0 transition-colors hover:bg-muted/30',
-                      u.id === currentUser?.id ? 'bg-primary/5' : idx % 2 === 0 ? 'bg-card' : 'bg-muted/10',
-                    )}
-                  >
-                    <td className="px-5 py-4 text-muted-foreground text-xs font-mono">{String(idx + 1).padStart(2, '0')}</td>
-                    <td className="px-5 py-4 whitespace-nowrap">
-                      <div className="flex items-center gap-2.5">
-                        <div className={clsx(
-                          'flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold flex-shrink-0',
-                          u.role === 'Admin'
-                            ? 'bg-emerald-100 text-emerald-700'
-                            : 'bg-amber-100 text-amber-700',
-                        )}>
-                          {u.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                        </div>
-                        <div>
-                          <p className="font-semibold text-foreground text-sm">{u.name}</p>
-                          {u.id === currentUser?.id && (
-                            <p className="text-xs text-primary font-medium">← you</p>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-5 py-4 whitespace-nowrap">
-                      <a
-                        href={`mailto:${u.email}`}
-                        className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors"
-                      >
-                        <Mail className="h-3.5 w-3.5 flex-shrink-0" />
-                        {u.email}
-                      </a>
-                    </td>
-                    <td className="px-5 py-4 whitespace-nowrap">
-                      <RoleBadge role={u.role} />
-                    </td>
-                    <td className="px-5 py-4 whitespace-nowrap">
-                      <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium bg-emerald-50 text-emerald-600 border border-emerald-200">
-                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                        Active
-                      </span>
-                    </td>
+          {loadingMembers ? (
+            <div className="flex items-center justify-center py-12 text-sm text-muted-foreground gap-2">
+              <span className="h-4 w-4 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
+              Loading team members…
+            </div>
+          ) : members.length === 0 ? (
+            <div className="py-12 text-center text-sm text-muted-foreground">
+              No team members found for this company.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[500px] text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/40">
+                    <th className="px-5 py-3.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">#</th>
+                    <th className="px-5 py-3.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">Name</th>
+                    <th className="px-5 py-3.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">Email</th>
+                    <th className="px-5 py-3.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">Role</th>
+                    <th className="px-5 py-3.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">Status</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {members.map((u, idx) => (
+                    <tr
+                      key={u.id}
+                      className={clsx(
+                        'border-b border-border last:border-0 transition-colors hover:bg-muted/30',
+                        u.id === user?.id ? 'bg-primary/5' : idx % 2 === 0 ? 'bg-card' : 'bg-muted/10',
+                      )}
+                    >
+                      <td className="px-5 py-4 text-muted-foreground text-xs font-mono">{String(idx + 1).padStart(2, '0')}</td>
+                      <td className="px-5 py-4 whitespace-nowrap">
+                        <div className="flex items-center gap-2.5">
+                          <div className={clsx(
+                            'flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold flex-shrink-0',
+                            u.role === 'super_admin' || u.role === 'company_admin'
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : 'bg-amber-100 text-amber-700',
+                          )}>
+                            {u.full_name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                          </div>
+                          <div>
+                            <p className="font-semibold text-foreground text-sm">{u.full_name}</p>
+                            {u.id === user?.id && (
+                              <p className="text-xs text-primary font-medium">← you</p>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-5 py-4 whitespace-nowrap">
+                        <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                          <Mail className="h-3.5 w-3.5 flex-shrink-0" />
+                          {user?.id === u.id ? user.email : '—'}
+                        </span>
+                      </td>
+                      <td className="px-5 py-4 whitespace-nowrap">
+                        <RoleBadge role={u.role} />
+                      </td>
+                      <td className="px-5 py-4 whitespace-nowrap">
+                        <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium bg-emerald-50 text-emerald-600 border border-emerald-200">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                          Active
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
         <p className="text-xs text-muted-foreground mt-2">
-          Showing {ALL_USERS.length} users · Mock data — connect to Supabase Auth to manage real users.
+          Showing {members.length} team member{members.length !== 1 ? 's' : ''} · Manage users via the Supabase dashboard.
         </p>
       </div>
 
@@ -158,30 +189,30 @@ export default function AdminPage() {
               <tr className="border-b border-border">
                 <th className="pb-2 text-left font-semibold text-muted-foreground">Feature</th>
                 <th className="pb-2 text-center font-semibold text-emerald-600">Admin</th>
-                <th className="pb-2 text-center font-semibold text-amber-600">Telecaller</th>
+                <th className="pb-2 text-center font-semibold text-amber-600">Employee</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {[
-                ['View all leads',          true,  true  ],
-                ['Add / Edit / Delete leads',true,  false ],
-                ['Full phone numbers',       true,  false ],
-                ['Pipeline (Kanban)',         true,  true  ],
-                ['Tasks & Reminders',         true,  true  ],
-                ['WhatsApp messaging',        true,  true  ],
-                ['Proposals',                true,  true  ],
-                ['Analytics',                true,  false ],
-                ['Invoices & Downloads',     true,  false ],
-                ['Admin Panel',              true,  false ],
-                ['Client Portal',            true,  false ],
-              ].map(([feature, admin, tele]) => (
+                ['View all leads',           true,  true  ],
+                ['Add / Edit / Delete leads', true,  false ],
+                ['Full phone numbers',        true,  false ],
+                ['Pipeline (Kanban)',          true,  true  ],
+                ['Tasks & Reminders',          true,  true  ],
+                ['WhatsApp messaging',         true,  true  ],
+                ['Proposals',                 true,  true  ],
+                ['Analytics',                 true,  false ],
+                ['Invoices & Downloads',      true,  false ],
+                ['Admin Panel',               true,  false ],
+                ['Client Portal',             true,  false ],
+              ].map(([feature, admin, emp]) => (
                 <tr key={String(feature)}>
                   <td className="py-2.5 font-medium text-foreground">{String(feature)}</td>
                   <td className="py-2.5 text-center">
                     {admin ? <span className="text-emerald-500 font-bold">✓</span> : <span className="text-muted-foreground/40">—</span>}
                   </td>
                   <td className="py-2.5 text-center">
-                    {tele ? <span className="text-emerald-500 font-bold">✓</span> : <span className="text-muted-foreground/40">—</span>}
+                    {emp ? <span className="text-emerald-500 font-bold">✓</span> : <span className="text-muted-foreground/40">—</span>}
                   </td>
                 </tr>
               ))}

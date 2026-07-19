@@ -52,7 +52,7 @@ function rowToTask(row: TaskRow): Task {
 const TasksContext = createContext<TasksContextType | null>(null);
 
 export function TasksProvider({ children }: { children: ReactNode }) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, profile } = useAuth();
 
   const [tasks,   setTasks]   = useState<Task[]>([]);
   const [loading, setLoading] = useState(false);
@@ -60,7 +60,6 @@ export function TasksProvider({ children }: { children: ReactNode }) {
   // ── Initial load (only when authenticated) ──────────────────────────────────
 
   useEffect(() => {
-    // Clear state on logout
     if (!isAuthenticated) {
       setTasks([]);
       setLoading(false);
@@ -98,6 +97,7 @@ export function TasksProvider({ children }: { children: ReactNode }) {
 
   const addTask = useCallback(async (data: Omit<Task, 'id' | 'done'>) => {
     const row: Omit<TaskRow, 'id'> = {
+      company_id:     profile?.company_id ?? null,
       lead_id:        data.leadId,
       lead_name:      data.leadName,
       lead_phone:     data.leadPhone,
@@ -120,7 +120,7 @@ export function TasksProvider({ children }: { children: ReactNode }) {
     }
 
     setTasks(prev => [...prev, rowToTask(inserted as TaskRow)]);
-  }, []);
+  }, [profile?.company_id]);
 
   const updateTask = useCallback(
     async (id: number, data: Partial<Omit<Task, 'id'>>) => {
