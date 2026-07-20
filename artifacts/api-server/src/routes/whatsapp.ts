@@ -43,6 +43,99 @@ function zodError(err: z.ZodError): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Meta WhatsApp Cloud API — text message delivery
+// ─────────────────────────────────────────────────────────────────────────────
+
+const META_API_VERSION = "v20.0";
+const META_API_BASE    = "https://graph.facebook.com";
+
+type MetaSuccess = { wamid: string };
+type MetaFailure = { errorCode: string; errorMessage: string };
+type MetaResult  = MetaSuccess | MetaFailure;
+
+function isMetaSuccess(r: MetaResult): r is MetaSuccess {
+  return "wamid" in r;
+}
+
+/**
+ * Sends a text message via the Meta WhatsApp Cloud API.
+ *
+ * Returns { wamid } on success or { errorCode, errorMessage } on failure.
+ * Never throws — all errors are captured and returned as a MetaFailure.
+ *
+ * @param to           Recipient phone number in E.164 format (e.g. +919876543210)
+ * @param body         Plain-text message body (max 4096 chars)
+ * @param accessToken  WHATSAPP_ACCESS_TOKEN env var value
+ * @param phoneNumberId WHATSAPP_PHONE_NUMBER_ID env var value
+ */
+async function sendTextViaMetaApi(
+  to:            string,
+  body:          string,
+  accessToken:   string,
+  phoneNumberId: string,
+): Promise<MetaResult> {
+  const url = `${META_API_BASE}/${META_API_VERSION}/${phoneNumberId}/messages`;
+
+  let httpRes: Response;
+  try {
+    httpRes = await fetch(url, {
+      method:  "POST",
+      headers: {
+        "Authorization": `Bearer ${accessToken}`,
+        "Content-Type":  "application/json",
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        recipient_type:    "individual",
+        to,
+        type:              "text",
+        text:              { preview_url: false, body },
+      }),
+    });
+  } catch (networkErr) {
+    const msg = networkErr instanceof Error ? networkErr.message : String(networkErr);
+    return { errorCode: "NETWORK_ERROR", errorMessage: msg };
+  }
+
+  let payload: Record<string, unknown>;
+  try {
+    payload = (await httpRes.json()) as Record<string, unknown>;
+  } catch {
+    return {
+      errorCode:    "PARSE_ERROR",
+      errorMessage: `Meta API returned HTTP ${httpRes.status} with a non-JSON body`,
+    };
+  }
+
+  // ── Success path ──────────────────────────────────────────────────────────
+  // Meta returns: { messages: [{ id: "wamid.xxx" }], ... }
+  if (httpRes.ok) {
+    const messages = payload["messages"];
+    const wamid =
+      Array.isArray(messages) && messages.length > 0
+        ? (messages[0] as Record<string, unknown>)["id"]
+        : undefined;
+
+    if (typeof wamid === "string" && wamid) {
+      return { wamid };
+    }
+    // Unexpected success body shape
+    return {
+      errorCode:    "UNEXPECTED_RESPONSE",
+      errorMessage: `Meta API HTTP ${httpRes.status} but no wamid in response`,
+    };
+  }
+
+  // ── Error path ────────────────────────────────────────────────────────────
+  // Meta returns: { error: { code: number, message: string, ... } }
+  const errObj = payload["error"] as Record<string, unknown> | undefined;
+  return {
+    errorCode:    String(errObj?.["code"]    ?? httpRes.status),
+    errorMessage: String(errObj?.["message"] ?? `HTTP ${httpRes.status}`),
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // POST /api/whatsapp/send
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -102,7 +195,7 @@ router.post("/whatsapp/send", async (req, res) => {
   // ── Verify conversation exists and belongs to this company ─────────────────
   const { data: conv, error: convErr } = await supabase
     .from("whatsapp_conversations")
-    .select("id, company_id, status")
+    .select("id, company_id, status, contact_phone")
     .eq("id", conversationId)
     .eq("company_id", companyId)
     .is("deleted_at", null)
@@ -158,7 +251,86 @@ router.post("/whatsapp/send", async (req, res) => {
     console.error("[whatsapp/send] failed to update last_message_at:", updateErr.message);
   }
 
-  res.status(201).json({ success: true, message });
+  // ── Meta Cloud API delivery (text messages only) ───────────────────────────
+  // Only attempt delivery when:
+  //   • The message type is "text" (other types not yet wired to Meta)
+  //   • Both required env vars are present
+  // On any outcome the message row is patched so the DB always reflects the
+  // real delivery state rather than staying on "pending" indefinitely.
+
+  const accessToken   = process.env["WHATSAPP_ACCESS_TOKEN"]?.trim()       ?? "";
+  const phoneNumberId = process.env["WHATSAPP_PHONE_NUMBER_ID"]?.trim()    ?? "";
+  const metaConfigured = accessToken && phoneNumberId;
+
+  let finalMessage = message;
+
+  if (messageType === "text" && metaConfigured) {
+    const contactPhone = conv.contact_phone as string;
+    const metaResult   = await sendTextViaMetaApi(
+      contactPhone,
+      body,
+      accessToken,
+      phoneNumberId,
+    );
+
+    const statusTs = new Date().toISOString();
+
+    if (isMetaSuccess(metaResult)) {
+      // ── Delivery succeeded ────────────────────────────────────────────────
+      const { data: updated, error: patchErr } = await supabase
+        .from("whatsapp_messages")
+        .update({
+          external_id:       metaResult.wamid,
+          status:            "sent",
+          status_updated_at: statusTs,
+          error_code:        null,
+          error_message:     null,
+        })
+        .eq("id", message.id)
+        .eq("company_id", companyId)   // tenant guard
+        .select()
+        .single();
+
+      if (patchErr) {
+        console.error("[whatsapp/send] failed to patch message after Meta success:", patchErr.message);
+      } else {
+        finalMessage = updated;
+      }
+    } else {
+      // ── Delivery failed ───────────────────────────────────────────────────
+      console.error(
+        "[whatsapp/send] Meta API error:",
+        metaResult.errorCode,
+        metaResult.errorMessage,
+      );
+
+      const { data: updated, error: patchErr } = await supabase
+        .from("whatsapp_messages")
+        .update({
+          status:            "failed",
+          status_updated_at: statusTs,
+          error_code:        metaResult.errorCode,
+          error_message:     metaResult.errorMessage,
+        })
+        .eq("id", message.id)
+        .eq("company_id", companyId)   // tenant guard
+        .select()
+        .single();
+
+      if (patchErr) {
+        console.error("[whatsapp/send] failed to patch message after Meta failure:", patchErr.message);
+      } else {
+        finalMessage = updated;
+      }
+    }
+  } else if (messageType === "text" && !metaConfigured) {
+    console.warn(
+      "[whatsapp/send] WHATSAPP_ACCESS_TOKEN or WHATSAPP_PHONE_NUMBER_ID not set — " +
+      "message stored as pending but not dispatched to Meta.",
+    );
+  }
+
+  res.status(201).json({ success: true, message: finalMessage });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
