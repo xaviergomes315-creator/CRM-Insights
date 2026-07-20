@@ -5,6 +5,7 @@ import usersRouter           from "./users";
 import proposalsRouter       from "./proposals";
 import whatsappRouter        from "./whatsapp";
 import whatsappWebhookRouter from "./whatsapp-webhook";
+import whatsappQueueRouter   from "./whatsapp-queue";
 
 const router: IRouter = Router();
 
@@ -14,5 +15,6 @@ router.use(usersRouter);
 router.use(proposalsRouter);
 router.use(whatsappRouter);
 router.use(whatsappWebhookRouter);
+router.use(whatsappQueueRouter);
 
 export default router;
