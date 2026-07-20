@@ -228,7 +228,7 @@ function CreateCampaignSheet({ open, onClose, token }: CreateSheetProps) {
   // Fetch conversations for recipient selection
   const { data: convsData, isLoading: convsLoading } = useQuery({
     queryKey: ['wa-conversations-for-campaign'],
-    queryFn:  () => fetchConversations(token, 0, 200),
+    queryFn:  () => fetchConversations(token, 0, 200, 'active'),
     enabled:  open,
   });
 
@@ -612,18 +612,23 @@ export default function WhatsAppCampaignsPage() {
   const [cancelTarget,    setCancelTarget]    = useState<Campaign | null>(null);
   const [actionCampaignId, setActionCampaignId] = useState<string | null>(null);
 
-  // Fetch campaigns
+  // Fetch ALL campaigns (no status filter) so every tab's counts stay accurate.
+  // Client-side filtering handles the active tab display.
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['wa-campaigns', activeTab],
-    queryFn:  () => fetchCampaigns(token, {
-      status: activeTab === 'all' ? undefined : activeTab,
-      limit: 100,
-    }),
+    queryKey: ['wa-campaigns'],
+    queryFn:  () => fetchCampaigns(token, { limit: 100 }),
     enabled: !!token,
-    refetchInterval: 5_000, // poll running campaigns
+    refetchInterval: 5_000, // poll so running campaigns update
   });
 
-  const campaigns: Campaign[] = data?.items ?? [];
+  const allCampaigns: Campaign[] = data?.items ?? [];
+
+  // Filter for the currently active tab
+  const campaigns = useMemo(() =>
+    activeTab === 'all'
+      ? allCampaigns
+      : allCampaigns.filter(c => c.status === activeTab),
+  [allCampaigns, activeTab]);
 
   // Start mutation
   const startMutation = useMutation({
@@ -650,14 +655,14 @@ export default function WhatsAppCampaignsPage() {
     onSettled: () => setActionCampaignId(null),
   });
 
-  // Summary counts
+  // Summary counts derived from the unfiltered list so every tab badge is accurate
   const counts = useMemo(() => ({
-    all:       data?.total ?? 0,
-    draft:     campaigns.filter(c => c.status === 'draft').length,
-    running:   campaigns.filter(c => c.status === 'running').length,
-    completed: campaigns.filter(c => c.status === 'completed').length,
-    cancelled: campaigns.filter(c => c.status === 'cancelled').length,
-  }), [campaigns, data?.total]);
+    all:       allCampaigns.length,
+    draft:     allCampaigns.filter(c => c.status === 'draft').length,
+    running:   allCampaigns.filter(c => c.status === 'running').length,
+    completed: allCampaigns.filter(c => c.status === 'completed').length,
+    cancelled: allCampaigns.filter(c => c.status === 'cancelled').length,
+  }), [allCampaigns]);
 
   return (
     <div className="space-y-6">

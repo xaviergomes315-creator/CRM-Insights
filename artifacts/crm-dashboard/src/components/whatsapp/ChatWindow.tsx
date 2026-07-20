@@ -428,10 +428,17 @@ export default function ChatWindow({ conversation, token, onBack, onMessageSent 
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
 
   // ── Refs ───────────────────────────────────────────────────────────────────
-  const scrollRef    = useRef<HTMLDivElement>(null);
-  const sentinelRef  = useRef<HTMLDivElement>(null);
-  const textareaRef  = useRef<HTMLTextAreaElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const scrollRef         = useRef<HTMLDivElement>(null);
+  const sentinelRef       = useRef<HTMLDivElement>(null);
+  const textareaRef       = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef      = useRef<HTMLInputElement>(null);
+  // Tracks IDs already present in the message list.  Prevents the realtime
+  // INSERT handler from double-incrementing `total` when the same message was
+  // already added via the send-API response (optimistic → real replacement).
+  const seenMsgIdsRef     = useRef(new Set<string>());
+  // Mirrors the current attachment preview URL so the unmount cleanup can
+  // always revoke the latest blob URL (a [] effect closure would capture null).
+  const attachmentUrlRef  = useRef<string | null>(null);
 
   // ── Scroll helpers ─────────────────────────────────────────────────────────
 
@@ -443,7 +450,7 @@ export default function ChatWindow({ conversation, token, onBack, onMessageSent 
 
   const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
     requestAnimationFrame(() => {
-      if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior });
     });
   };
 
@@ -473,6 +480,7 @@ export default function ChatWindow({ conversation, token, onBack, onMessageSent 
 
       const offset = Math.max(0, t - PAGE_SIZE);
       const page   = await fetchMessages(token, conversation.id, offset, PAGE_SIZE);
+      seenMsgIdsRef.current = new Set(page.messages.map(m => m.id));
       setMessages(page.messages);
       setEarliestOffset(offset);
       setIsLoading(false);
@@ -500,6 +508,7 @@ export default function ChatWindow({ conversation, token, onBack, onMessageSent 
 
     try {
       const page = await fetchMessages(token, conversation.id, newOffset, batchSize);
+      page.messages.forEach(m => seenMsgIdsRef.current.add(m.id));
       setMessages(prev => [...page.messages, ...prev]);
       setEarliestOffset(newOffset);
 
@@ -530,10 +539,11 @@ export default function ChatWindow({ conversation, token, onBack, onMessageSent 
   // ── Realtime ───────────────────────────────────────────────────────────────
 
   const handleRealtimeInsert = useCallback((msg: WaMessage) => {
-    setMessages(prev => {
-      if (prev.some(m => m.id === msg.id)) return prev;
-      return [...prev, msg];
-    });
+    // Skip if already in the list — the send path marks the real ID as seen
+    // before the realtime INSERT fires, so we never double-count.
+    if (seenMsgIdsRef.current.has(msg.id)) return;
+    seenMsgIdsRef.current.add(msg.id);
+    setMessages(prev => [...prev, msg]);
     setTotal(t => t + 1);
 
     if (isNearBottom()) {
@@ -577,9 +587,11 @@ export default function ChatWindow({ conversation, token, onBack, onMessageSent 
     setAttachment(null);
   }, [attachment]);
 
+  // Keep attachmentUrlRef current so the unmount cleanup always revokes the
+  // latest blob URL.  A [] closure would capture the initial null value.
+  useEffect(() => { attachmentUrlRef.current = attachment?.previewUrl ?? null; }, [attachment]);
   useEffect(() => {
-    return () => { if (attachment) URL.revokeObjectURL(attachment.previewUrl); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => { if (attachmentUrlRef.current) URL.revokeObjectURL(attachmentUrlRef.current); };
   }, []);
 
   // ── Send text / media message ──────────────────────────────────────────────
@@ -660,6 +672,9 @@ export default function ChatWindow({ conversation, token, onBack, onMessageSent 
         mediaFilename,
       });
 
+      // Mark the real ID as seen before realtime can fire, preventing a
+      // double-increment of `total` for the same message.
+      seenMsgIdsRef.current.add(real.id);
       setMessages(prev => {
         const hasReal = prev.some(m => m.id === real.id);
         if (hasReal) return prev.filter(m => m.id !== optimisticId);
@@ -731,6 +746,7 @@ export default function ChatWindow({ conversation, token, onBack, onMessageSent 
         templateParams: params,
       });
 
+      seenMsgIdsRef.current.add(real.id);
       setMessages(prev => {
         const hasReal = prev.some(m => m.id === real.id);
         if (hasReal) return prev.filter(m => m.id !== optimisticId);

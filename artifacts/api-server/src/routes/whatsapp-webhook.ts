@@ -201,7 +201,9 @@ async function handleStatusUpdate(statusObj: Record<string, unknown>): Promise<v
   }
 
   // ── Deduplication / anti-regression guard ───────────────────────────────
-  // "failed" always writes (rank -1). All other statuses only advance.
+  // All statuses only advance; "failed" also never overwrites confirmed delivery.
+  // A late/spurious "failed" webhook arriving after "delivered" or "read" must not
+  // regress the message — the recipient already received it.
   const currentRank  = STATUS_RANK[existing.status as string] ?? 0;
   const incomingRank = STATUS_RANK[mappedStatus]              ?? 0;
 
@@ -209,6 +211,17 @@ async function handleStatusUpdate(statusObj: Record<string, unknown>): Promise<v
     console.info(
       "[wa-webhook] Skipping status '%s' for wamid %s (current: '%s', no advancement).",
       mappedStatus, wamid, existing.status,
+    );
+    return;
+  }
+
+  if (
+    mappedStatus === "failed" &&
+    (existing.status === "delivered" || existing.status === "read")
+  ) {
+    console.info(
+      "[wa-webhook] Skipping late 'failed' for wamid %s — already '%s'.",
+      wamid, existing.status,
     );
     return;
   }

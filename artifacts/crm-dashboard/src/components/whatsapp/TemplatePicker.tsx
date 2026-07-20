@@ -162,7 +162,7 @@ export default function TemplatePicker({ token, onConfirm, onClose, disabled }: 
   const filtered = templates.filter(t => {
     if (!search.trim()) return true;
     const q = search.toLowerCase();
-    return t.name.includes(q) || t.body_text.toLowerCase().includes(q);
+    return t.name.toLowerCase().includes(q) || t.body_text.toLowerCase().includes(q);
   });
 
   // ── Render ─────────────────────────────────────────────────────────────────
