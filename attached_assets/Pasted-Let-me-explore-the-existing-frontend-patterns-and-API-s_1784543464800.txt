@@ -1,0 +1,60 @@
+Let me explore the existing frontend patterns and API structure in parallel before writing a single line.
+
+
+4 actions
+Now let me read the key existing files in parallel before writing anything.
+
+
+6 actions
+Let me grab the remaining files I need before writing code.
+
+
+4 actions
+Need one more quick read to understand the API proxy setup.
+
+
+8 actions
+React Query v5, Vite proxy confirmed. Now I have everything. Writing all 4 files in parallel — types, conversation list, chat window, and the replacement page.
+
+
+12 actions
+Both servers running clean with no TypeScript or build errors from Vite. Here's a full summary of what was built.
+
+Files created
+File	Purpose
+src/lib/whatsapp-api.ts	Typed API client — fetch functions, formatting helpers, unread tracking
+src/components/whatsapp/ConversationList.tsx	Left panel
+src/components/whatsapp/ChatWindow.tsx	Right panel — messages + composer
+src/pages/WhatsAppPage.tsx	Main layout — replaces the old bulk-send page
+Feature breakdown
+Conversation list
+
+Loads conversations 30 at a time via useInfiniteQuery (React Query v5)
+IntersectionObserver on a bottom sentinel fires fetchNextPage() automatically as you scroll
+Client-side search filters by contact name or phone number against already-loaded pages
+Deterministic avatar colour from the conversation UUID (9 colours, consistent per contact)
+Unread badge: green dot on conversations whose last_message_at is newer than the last time you opened them. Stored in localStorage per conversation ID, cleared on click
+Chat window — message loading
+
+Two-phase load: first fetches limit=1 to get total, then fetches offset = max(0, total - 50) to land on the most recent 50 messages (not the oldest)
+IntersectionObserver on a top sentinel triggers loading older batches; scroll position is preserved after prepend using a scrollHeight delta calculation
+Fallback "Load older messages" button for cases where the observer fires late
+Date separators inserted whenever the calendar day changes between consecutive messages
+Sending
+
+Optimistic insert: message appears immediately as pending with a clock tick
+On success: replaced with the server row (real id, external_id/wamid, actual status)
+On failure: bubble stays with a red ✕ tick and inline error text
+Enter to send, Shift+Enter for newline; textarea auto-resizes up to 140 px; 4096 char limit
+Message status ticks (outgoing bubbles only)
+
+pending → clock icon
+sent → single grey check
+delivered → double grey check
+read → double blue check
+failed → red alert + error message below bubble
+Responsive mobile layout
+
+Below md: single-pane — conversation list fills screen; selecting a conversation slides to the chat view; back button in the chat header returns to the list
+Above md: standard two-pane split (320 px / 384 px left, flex-1 right)
+Height calculation accounts for the DashboardLayout header and mobile topbar (-m-6 h-[calc(100vh-7.5rem)] md:h-[calc(100vh-4rem)]) so the chat fills the viewport without an outer scrollbar
