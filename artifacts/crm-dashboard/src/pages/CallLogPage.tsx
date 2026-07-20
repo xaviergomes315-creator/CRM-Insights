@@ -21,8 +21,8 @@ import { toast } from 'sonner';
 import { clsx } from 'clsx';
 import {
   Phone, PhoneCall, PhoneMissed, PhoneOff, PhoneForwarded,
-  Voicemail, Clock, Plus, X, Search, Loader2, Trash2,
-  Calendar, CheckCircle2, ChevronDown, Filter,
+  Clock, Plus, X, Search, Loader2, Trash2,
+  Calendar, CheckCircle2, ChevronDown, Filter, Zap,
 } from 'lucide-react';
 import { useLeads }            from '@/contexts/LeadsContext';
 import { useAuth, maskPhone }  from '@/contexts/AuthContext';
@@ -42,6 +42,7 @@ interface CallLog {
   duration_seconds: number | null;
   outcome:          string;
   notes:            string;
+  follow_up_at:     string | null;
   created_at:       string;
 }
 
@@ -52,28 +53,29 @@ interface LogCallForm {
   durationSec: string;
   outcome:     Outcome;
   notes:       string;
+  followUpAt:  string;  // YYYY-MM-DDTHH:MM (local), only required when outcome = 'Follow-up'
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const OUTCOMES = [
-  'Interested',
+  'Connected',
   'No Answer',
-  'Not Interested',
-  'Callback Requested',
+  'Busy',
   'Wrong Number',
-  'Voicemail',
+  'Follow-up',
+  'Converted',
 ] as const;
 
 type Outcome = (typeof OUTCOMES)[number];
 
 const OUTCOME_META: Record<Outcome, { badge: string; icon: React.ElementType }> = {
-  'Interested':         { badge: 'bg-emerald-100 text-emerald-700 border-emerald-200', icon: CheckCircle2   },
-  'No Answer':          { badge: 'bg-amber-100   text-amber-700   border-amber-200',   icon: PhoneMissed    },
-  'Not Interested':     { badge: 'bg-red-100     text-red-700     border-red-200',     icon: PhoneOff       },
-  'Callback Requested': { badge: 'bg-blue-100    text-blue-700    border-blue-200',    icon: PhoneForwarded },
-  'Wrong Number':       { badge: 'bg-gray-100    text-gray-600    border-gray-200',    icon: Phone          },
-  'Voicemail':          { badge: 'bg-violet-100  text-violet-700  border-violet-200',  icon: Voicemail      },
+  'Connected':    { badge: 'bg-emerald-100 text-emerald-700 border-emerald-200', icon: PhoneCall     },
+  'No Answer':    { badge: 'bg-amber-100   text-amber-700   border-amber-200',   icon: PhoneMissed   },
+  'Busy':         { badge: 'bg-orange-100  text-orange-700  border-orange-200',  icon: PhoneOff      },
+  'Wrong Number': { badge: 'bg-gray-100    text-gray-600    border-gray-200',    icon: Phone         },
+  'Follow-up':    { badge: 'bg-blue-100    text-blue-700    border-blue-200',    icon: PhoneForwarded },
+  'Converted':    { badge: 'bg-teal-100    text-teal-700    border-teal-200',    icon: Zap           },
 };
 
 type DateFilter = 'all' | 'today' | 'week' | 'month';
@@ -89,8 +91,9 @@ const EMPTY_FORM: Omit<LogCallForm, 'calledAt'> = {
   leadId:      '',
   durationMin: '',
   durationSec: '',
-  outcome:     'Interested',
+  outcome:     'Connected',
   notes:       '',
+  followUpAt:  '',
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -241,6 +244,8 @@ function LogCallSheet({
     const e: Partial<Record<keyof LogCallForm, string>> = {};
     if (!form.leadId)   e.leadId   = 'Select a lead';
     if (!form.calledAt) e.calledAt = 'Enter the call date and time';
+    if (form.outcome === 'Follow-up' && !form.followUpAt)
+      e.followUpAt = 'Enter a follow-up date and time';
     setErrors(e);
     return !Object.keys(e).length;
   };
@@ -337,35 +342,44 @@ function LogCallSheet({
               {errors.calledAt && <p className="mt-1 text-xs text-destructive">{errors.calledAt}</p>}
             </div>
 
-            {/* Outcome grid */}
+            {/* Outcome dropdown */}
             <div>
-              <label className="block text-xs font-semibold text-foreground mb-2">
+              <label className="block text-xs font-semibold text-foreground mb-1.5">
                 Outcome <span className="text-destructive">*</span>
               </label>
-              <div className="grid grid-cols-2 gap-2">
-                {OUTCOMES.map(o => {
-                  const meta     = OUTCOME_META[o];
-                  const Icon     = meta.icon;
-                  const selected = form.outcome === o;
-                  return (
-                    <button
-                      key={o}
-                      type="button"
-                      onClick={() => set('outcome', o)}
-                      className={clsx(
-                        'flex items-center gap-2 rounded-lg border px-3 py-2.5 text-xs font-medium text-left transition-all',
-                        selected
-                          ? `${meta.badge} ring-2 ring-current/30 ring-offset-1`
-                          : 'border-border bg-background text-foreground hover:bg-muted',
-                      )}
-                    >
-                      <Icon size={13} className="flex-shrink-0" />
-                      {o}
-                    </button>
-                  );
-                })}
+              <div className="relative">
+                <select
+                  value={form.outcome}
+                  onChange={e => {
+                    set('outcome', e.target.value as Outcome);
+                    // Clear follow-up date when switching away from Follow-up
+                    if (e.target.value !== 'Follow-up') set('followUpAt', '');
+                  }}
+                  className={clsx(inputCls(), 'appearance-none pr-8')}
+                >
+                  {OUTCOMES.map(o => (
+                    <option key={o} value={o}>{o}</option>
+                  ))}
+                </select>
+                <ChevronDown size={13} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               </div>
             </div>
+
+            {/* Follow-up date & time – visible only when outcome = 'Follow-up' */}
+            {form.outcome === 'Follow-up' && (
+              <div>
+                <label className="block text-xs font-semibold text-foreground mb-1.5">
+                  Follow-up Date & Time <span className="text-destructive">*</span>
+                </label>
+                <input
+                  type="datetime-local"
+                  value={form.followUpAt}
+                  onChange={e => { set('followUpAt', e.target.value); setErrors(x => ({ ...x, followUpAt: undefined })); }}
+                  className={inputCls(errors.followUpAt)}
+                />
+                {errors.followUpAt && <p className="mt-1 text-xs text-destructive">{errors.followUpAt}</p>}
+              </div>
+            )}
 
             {/* Duration */}
             <div>
@@ -489,6 +503,7 @@ export default function CallLogPage() {
         duration_seconds: durationSeconds,
         outcome:          form.outcome,
         notes:            form.notes,
+        follow_up_at:     form.followUpAt ? new Date(form.followUpAt).toISOString() : null,
       });
       if (error) throw error;
     },
@@ -542,7 +557,7 @@ export default function CallLogPage() {
   const todaysLogs = useMemo(() => logs.filter(l => isInDateRange(l.called_at, 'today')), [logs]);
 
   const connectedToday = todaysLogs.filter(
-    l => l.outcome === 'Interested' || l.outcome === 'Callback Requested',
+    l => l.outcome === 'Connected' || l.outcome === 'Converted',
   ).length;
 
   const noAnswerToday = todaysLogs.filter(l => l.outcome === 'No Answer').length;
@@ -728,7 +743,7 @@ export default function CallLogPage() {
                   <tr className="border-b border-border bg-muted/30">
                     {[
                       'Date & Time', 'Lead', 'Phone', 'Outcome',
-                      'Duration', 'Notes',
+                      'Duration', 'Notes', 'Follow-up',
                       ...(!isTelecaller ? ['By'] : []),
                       '',
                     ].map((h, i) => (
@@ -802,6 +817,22 @@ export default function CallLogPage() {
                               {log.notes}
                             </p>
                           ) : (
+                            <span className="text-[11px] italic text-muted-foreground/50">—</span>
+                          )}
+                        </td>
+
+                        {/* Follow-up */}
+                        <td className="whitespace-nowrap px-5 py-3.5">
+                          {log.follow_up_at ? (() => {
+                            const { date, time } = fmtDateTime(log.follow_up_at);
+                            return (
+                              <div className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5">
+                                <Calendar size={10} className="text-blue-500 flex-shrink-0" />
+                                <span className="text-[11px] font-medium text-blue-700">{date}</span>
+                                <span className="text-[11px] text-blue-500">{time}</span>
+                              </div>
+                            );
+                          })() : (
                             <span className="text-[11px] italic text-muted-foreground/50">—</span>
                           )}
                         </td>
