@@ -861,10 +861,16 @@ export default function ProposalPage() {
         body: JSON.stringify({ proposalId: savedProposalId, pdfBase64 }),
       });
 
-      const json = await res.json().catch(() => ({})) as { error?: string };
+      const json = await res.json().catch(() => ({})) as { code?: string; error?: string };
 
       if (!res.ok) {
-        toast.error('Failed to send email', { description: json.error ?? res.statusText });
+        if (json.code === 'EMAIL_NOT_CONFIGURED') {
+          toast.error('Email service not configured', {
+            description: 'Ask your administrator to set up SMTP credentials.',
+          });
+        } else {
+          toast.error('Failed to send email', { description: json.error ?? res.statusText });
+        }
         setSending(false);
         return;
       }

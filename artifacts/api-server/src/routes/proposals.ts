@@ -110,10 +110,7 @@ router.post("/proposals/send-email", async (req, res) => {
   const smtpPass = process.env["SMTP_PASS"]?.trim();
 
   if (!smtpHost || !smtpUser || !smtpPass) {
-    res.status(503).json({
-      error:
-        "Email is not configured. Set SMTP_HOST, SMTP_USER, SMTP_PASS, and SMTP_PORT (optional, default 587) in your environment secrets.",
-    });
+    res.status(503).json({ code: "EMAIL_NOT_CONFIGURED", error: "Email service is not configured." });
     return;
   }
 
