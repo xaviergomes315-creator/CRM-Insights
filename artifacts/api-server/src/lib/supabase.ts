@@ -7,6 +7,26 @@
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
+// ── WebSocket polyfill ────────────────────────────────────────────────────────
+// Node.js 20 has no global WebSocket; Node.js 22 adds it natively.
+// Without a global WebSocket the Supabase client constructor throws before
+// the server can handle any request.  We inject a minimal no-op stub so
+// construction succeeds; realtime subscriptions will silently fail (which is
+// fine — the server-side client only uses PostgREST REST queries).
+if (typeof globalThis.WebSocket === "undefined") {
+  class _NoopWS {
+    static CONNECTING = 0; static OPEN = 1;
+    static CLOSING  = 2; static CLOSED  = 3;
+    readyState = 3;          // CLOSED — never actually connects
+    addEventListener()  { /* noop */ }
+    removeEventListener() { /* noop */ }
+    dispatchEvent()     { return false; }
+    close()             { /* noop */ }
+    send()              { /* noop */ }
+  }
+  (globalThis as unknown as Record<string, unknown>).WebSocket = _NoopWS;
+}
+
 export interface LeadRow {
   id?:              number;
   name:             string;

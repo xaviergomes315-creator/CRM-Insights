@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { clsx } from 'clsx';
 import {
   Plus, Pencil, Trash2, X, Filter, AlertCircle, MessageCircle, Sparkles, Loader2, Copy, Check,
@@ -42,38 +42,6 @@ interface LeadForm {
 type LeadFormErrors = Partial<Record<keyof LeadForm, string>>;
 const EMPTY_FORM: LeadForm = { name: '', email: '', phone: '', status: 'New', source: '' };
 
-// ─── AI Draft helpers ─────────────────────────────────────────────────────────
-
-const SOURCE_INTEREST: Record<LeadSource, string> = {
-  'IndiaMart':    'bulk procurement or B2B solutions',
-  'WhatsApp':     'our offerings',
-  'Website':      'our services',
-  'JustDial':     'local business solutions',
-  'Social Media': 'our latest products',
-};
-
-const STATUS_CONTEXT: Record<LeadStatus, string> = {
-  'New':            "you've recently reached out to us",
-  'Interested':     "you've shown strong interest in moving forward",
-  'Demo Scheduled': "you have a demo with us coming up",
-  'Closed':         "you've previously worked with us",
-};
-
-function generateAiDraft(lead: Lead): string {
-  return [
-    `Hi ${lead.name}! 👋`,
-    ``,
-    `I noticed ${STATUS_CONTEXT[lead.status]} regarding ${SOURCE_INTEREST[lead.source]}.`,
-    ``,
-    `Our team has helped many clients with similar needs achieve great results — and I'd love to understand your specific requirements better so I can personalise a solution just for you. 🎯`,
-    ``,
-    `Could we set up a quick 10-minute call this week? Just reply "Yes" here and I'll send you a calendar link right away!`,
-    ``,
-    `Looking forward to connecting!`,
-    `— CRM Pro Team`,
-  ].join('\n');
-}
-
 // ─── AI Draft Modal ───────────────────────────────────────────────────────────
 
 function AiDraftModal({
@@ -88,14 +56,22 @@ function AiDraftModal({
   const [copied,  setCopied]  = useState(false);
   const { toast } = useToast();
 
-  // Simulate 1-second AI generation delay
-  useState(() => {
-    const t = setTimeout(() => {
-      setMessage(generateAiDraft(lead));
-      setStatus('ready');
-    }, 1000);
-    return () => clearTimeout(t);
-  });
+  useEffect(() => {
+    fetch('/api/ai/draft', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lead }),
+    })
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then((data: { message: string }) => {
+        setMessage(data.message);
+        setStatus('ready');
+      })
+      .catch(() => {
+        setMessage(`Hi ${lead.name}! 👋\n\nI wanted to follow up and see how we can help you. Could we set up a quick 10-minute call this week?\n\nLooking forward to connecting!\n— CRM Pro Team`);
+        setStatus('ready');
+      });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCopy = async () => {
     try { await navigator.clipboard.writeText(message); } catch { /* ignore */ }

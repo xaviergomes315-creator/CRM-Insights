@@ -19,40 +19,6 @@ const COLUMN_CONFIG: Record<LeadStatus, { header: string; dot: string; empty: st
   Closed:          { header: 'bg-emerald-50 border-emerald-200', dot: 'bg-emerald-500', empty: 'text-emerald-300' },
 };
 
-// ─── AI Draft helpers ─────────────────────────────────────────────────────────
-
-type LeadSource = Lead['source'];
-
-const SOURCE_INTEREST: Record<LeadSource, string> = {
-  'IndiaMart':    'bulk procurement or B2B solutions',
-  'WhatsApp':     'our offerings',
-  'Website':      'our services',
-  'JustDial':     'local business solutions',
-  'Social Media': 'our latest products',
-};
-
-const STATUS_CONTEXT: Record<LeadStatus, string> = {
-  'New':            "you've recently reached out to us",
-  'Interested':     "you've shown strong interest in moving forward",
-  'Demo Scheduled': "you have a demo with us coming up",
-  'Closed':         "you've previously worked with us",
-};
-
-function generateAiDraft(lead: Lead): string {
-  return [
-    `Hi ${lead.name}! 👋`,
-    ``,
-    `I noticed ${STATUS_CONTEXT[lead.status]} regarding ${SOURCE_INTEREST[lead.source]}.`,
-    ``,
-    `Our team has helped many clients with similar needs achieve great results — and I'd love to understand your specific requirements better so I can personalise a solution just for you. 🎯`,
-    ``,
-    `Could we set up a quick 10-minute call this week? Just reply "Yes" here and I'll send you a calendar link right away!`,
-    ``,
-    `Looking forward to connecting!`,
-    `— CRM Pro Team`,
-  ].join('\n');
-}
-
 // ─── AI Draft Mini-Modal ──────────────────────────────────────────────────────
 
 function AiDraftModal({ lead, onClose }: { lead: Lead; onClose: () => void }) {
@@ -62,11 +28,20 @@ function AiDraftModal({ lead, onClose }: { lead: Lead; onClose: () => void }) {
   const { toast } = useToast();
 
   useEffect(() => {
-    const t = setTimeout(() => {
-      setMessage(generateAiDraft(lead));
-      setStatus('ready');
-    }, 1000);
-    return () => clearTimeout(t);
+    fetch('/api/ai/draft', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lead }),
+    })
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then((data: { message: string }) => {
+        setMessage(data.message);
+        setStatus('ready');
+      })
+      .catch(() => {
+        setMessage(`Hi ${lead.name}! 👋\n\nI wanted to follow up and see how we can help you. Could we set up a quick 10-minute call this week?\n\nLooking forward to connecting!\n— CRM Pro Team`);
+        setStatus('ready');
+      });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCopy = async () => {

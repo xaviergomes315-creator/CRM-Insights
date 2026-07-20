@@ -1,0 +1,1 @@
+- [Supabase + Node.js 20 WebSocket](supabase-nodejs20-websocket.md) — inject a no-op WebSocket stub into globalThis before createClient() or the constructor throws and all supabase.from() calls break.
