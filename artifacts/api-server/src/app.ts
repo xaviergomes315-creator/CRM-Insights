@@ -43,7 +43,16 @@ app.use(
 // ── Body parsing ─────────────────────────────────────────────────────────────
 // 10 MB cap: a large PDF base64-encodes to ~7–8 MB; this blocks memory-exhaustion
 // DoS attacks from oversized payloads while still accommodating real proposals.
-app.use(express.json({ limit: "10mb" }));
+// Capture the raw request body before JSON parsing so the webhook handler
+// can verify the Meta HMAC-SHA256 signature from X-Hub-Signature-256.
+app.use(
+  express.json({
+    limit: "10mb",
+    verify: (req: Record<string, unknown>, _res, buf) => {
+      req["rawBody"] = buf;
+    },
+  }),
+);
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 app.use("/api", router);
