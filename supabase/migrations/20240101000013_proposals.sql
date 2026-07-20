@@ -36,6 +36,12 @@ CREATE TABLE IF NOT EXISTS public.proposals (
   notes           TEXT        NOT NULL DEFAULT '',
   validity_date   DATE,
 
+  -- When the proposal expires (after this date it should transition to 'Expired')
+  expiry_date     DATE,
+
+  -- Extensible metadata bag for future attributes without schema changes
+  metadata        JSONB       NOT NULL DEFAULT '{}'::jsonb,
+
   created_by      UUID        NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
