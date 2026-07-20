@@ -1,46 +1,43 @@
 # CRM Dashboard
 
-A CRM dashboard with a React frontend and Express API backend, backed by PostgreSQL.
-
-## Run & Operate
-
-- **CRM Dashboard** workflow — Vite dev server on port 3000 (`PORT=3000 pnpm --filter @workspace/crm-dashboard run dev`)
-- **API Server** workflow — Express API on port 8080 (`PORT=8080 pnpm --filter @workspace/api-server run dev`)
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- `DATABASE_URL` — automatically provided by Replit's built-in PostgreSQL
+A full-stack CRM (Customer Relationship Management) application with a React frontend and Express API server.
 
 ## Stack
 
-- pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+- **Frontend**: React + Vite + TypeScript (Tailwind CSS, shadcn/ui, React Query, Wouter)
+- **Backend**: Express + TypeScript
+- **Database**: PostgreSQL via Drizzle ORM
+- **Auth**: Supabase
+- **Monorepo**: pnpm workspaces
 
-## Where things live
+## Structure
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+```
+artifacts/crm-dashboard/   # React + Vite frontend
+artifacts/api-server/      # Express API server
+lib/db/                    # Drizzle schema + database client
+lib/api-spec/              # OpenAPI spec + Orval codegen config
+lib/api-client-react/      # Generated API client (React Query hooks)
+lib/api-zod/               # Generated Zod validators
+```
 
-## Architecture decisions
+## Running
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+Two workflows must both be running:
 
-## Product
+- **CRM Dashboard** — `PORT=3000 BASE_PATH=/ pnpm --filter @workspace/crm-dashboard run dev`
+- **API Server** — `PORT=8080 pnpm --filter @workspace/api-server run dev`
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+## Required environment variables
+
+The app requires a Supabase project. Set these secrets before running:
+
+| Variable | Description |
+|---|---|
+| `VITE_SUPABASE_URL` | Supabase project URL (used by the browser client) |
+| `VITE_SUPABASE_ANON_KEY` | Supabase anonymous/public key (browser client) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service-role key (server-side only) |
+| `DATABASE_URL` | PostgreSQL connection string |
+| `SESSION_SECRET` | Secret for signing server sessions ✓ already set |
 
 ## User preferences
-
-_Populate as you build — explicit user instructions worth remembering across sessions._
-
-## Gotchas
-
-_Populate as you build — sharp edges, "always run X before Y" rules._
-
-## Pointers
-
-- See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
