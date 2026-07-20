@@ -256,6 +256,200 @@ async function sendMediaViaMetaApi(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Template helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface MetaTemplateComponent {
+  type:     string;
+  format?:  string;
+  text?:    string;
+  buttons?: Record<string, unknown>[];
+  example?: { header_url?: string[]; body_text?: string[][] };
+}
+
+interface MetaTemplateItem {
+  id?:              string;
+  name:             string;
+  status?:          string;
+  category?:        string;
+  language?:        string;
+  rejected_reason?: string;
+  components?:      MetaTemplateComponent[];
+}
+
+const TEMPLATE_STATUS_MAP: Record<string, string> = {
+  APPROVED:         "approved",
+  REJECTED:         "rejected",
+  PENDING:          "pending_approval",
+  PENDING_DELETION: "pending_approval",
+  PAUSED:           "paused",
+  DISABLED:         "paused",
+  IN_APPEAL:        "pending_approval",
+  DRAFT:            "draft",
+};
+
+/** Returns the highest variable index found in {{n}} placeholders (0 if none). */
+function countTemplateVars(text: string): number {
+  const matches = [...text.matchAll(/\{\{(\d+)\}\}/g)];
+  if (!matches.length) return 0;
+  return Math.max(...matches.map(m => parseInt(m[1], 10)));
+}
+
+/** Substitutes {{n}} with params[n-1]; unfilled slots become empty string. */
+function renderTemplateBody(text: string, params: string[]): string {
+  return text.replace(/\{\{(\d+)\}\}/g, (_, n) => params[parseInt(n, 10) - 1] ?? "");
+}
+
+/** Maps a Meta Graph API template object to a whatsapp_templates DB row. */
+function mapMetaTemplateRow(
+  meta:      MetaTemplateItem,
+  companyId: string,
+  createdBy: string,
+): Record<string, unknown> {
+  const comps  = meta.components ?? [];
+  const header = comps.find(c => c.type === "HEADER");
+  const body   = comps.find(c => c.type === "BODY");
+  const footer = comps.find(c => c.type === "FOOTER");
+  const btns   = comps.find(c => c.type === "BUTTONS");
+
+  let headerType: string | null    = null;
+  let headerContent: string | null = null;
+  if (header) {
+    const fmt = (header.format ?? "TEXT").toUpperCase();
+    headerType =
+      fmt === "TEXT"     ? "text"
+      : fmt === "IMAGE"    ? "image"
+      : fmt === "DOCUMENT" ? "document"
+      : fmt === "VIDEO"    ? "video"
+      : null;
+    headerContent = header.text ?? header.example?.header_url?.[0] ?? null;
+  }
+
+  return {
+    company_id:       companyId,
+    created_by:       createdBy,
+    name:             meta.name,
+    category:         (meta.category ?? "UTILITY").toUpperCase(),
+    language:         meta.language ?? "en",
+    status:           TEMPLATE_STATUS_MAP[(meta.status ?? "").toUpperCase()] ?? "pending_approval",
+    external_id:      meta.id ?? null,
+    header_type:      headerType,
+    header_content:   headerContent,
+    body_text:        body?.text ?? "",
+    footer_text:      footer?.text ?? "",
+    buttons:          btns?.buttons ?? [],
+    rejection_reason: meta.rejected_reason ?? null,
+  };
+}
+
+/**
+ * Fetches every template page from the Meta Graph API (cursor pagination).
+ * Returns a MetaFailure on any error without throwing.
+ */
+async function fetchAllMetaTemplates(
+  wabaId:      string,
+  accessToken: string,
+): Promise<{ templates: MetaTemplateItem[] } | MetaFailure> {
+  const fields = "id,name,status,category,language,components,rejected_reason";
+  const all: MetaTemplateItem[] = [];
+
+  let url: string | null =
+    `${META_API_BASE}/${META_API_VERSION}/${encodeURIComponent(wabaId)}/message_templates` +
+    `?fields=${fields}&limit=100&access_token=${encodeURIComponent(accessToken)}`;
+
+  while (url) {
+    let httpRes: Response;
+    try {
+      httpRes = await fetch(url);
+    } catch (err) {
+      return { errorCode: "NETWORK_ERROR", errorMessage: err instanceof Error ? err.message : String(err) };
+    }
+
+    let payload: Record<string, unknown>;
+    try {
+      payload = (await httpRes.json()) as Record<string, unknown>;
+    } catch {
+      return { errorCode: "PARSE_ERROR", errorMessage: `Meta API HTTP ${httpRes.status} returned non-JSON` };
+    }
+
+    if (!httpRes.ok) {
+      const errObj = payload["error"] as Record<string, unknown> | undefined;
+      return {
+        errorCode:    String(errObj?.["code"]    ?? httpRes.status),
+        errorMessage: String(errObj?.["message"] ?? `HTTP ${httpRes.status}`),
+      };
+    }
+
+    all.push(...((payload["data"] as MetaTemplateItem[] | undefined) ?? []));
+    url = ((payload["paging"] as Record<string, unknown> | undefined)?.["next"] as string | undefined) ?? null;
+  }
+
+  return { templates: all };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Meta WhatsApp Cloud API — template message delivery
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Sends a template message via the Meta WhatsApp Cloud API.
+ * `params` is an ordered array of text values for {{1}}, {{2}}, … body variables.
+ */
+async function sendTemplateViaMetaApi(
+  to:            string,
+  templateName:  string,
+  languageCode:  string,
+  params:        string[],
+  accessToken:   string,
+  phoneNumberId: string,
+): Promise<MetaResult> {
+  const url = `${META_API_BASE}/${META_API_VERSION}/${phoneNumberId}/messages`;
+
+  const components: Record<string, unknown>[] = params.length > 0
+    ? [{ type: "body", parameters: params.map(text => ({ type: "text", text })) }]
+    : [];
+
+  let httpRes: Response;
+  try {
+    httpRes = await fetch(url, {
+      method:  "POST",
+      headers: { "Authorization": `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        recipient_type:    "individual",
+        to,
+        type: "template",
+        template: { name: templateName, language: { code: languageCode }, components },
+      }),
+    });
+  } catch (err) {
+    return { errorCode: "NETWORK_ERROR", errorMessage: err instanceof Error ? err.message : String(err) };
+  }
+
+  let payload: Record<string, unknown>;
+  try {
+    payload = (await httpRes.json()) as Record<string, unknown>;
+  } catch {
+    return { errorCode: "PARSE_ERROR", errorMessage: `Meta API HTTP ${httpRes.status} returned non-JSON` };
+  }
+
+  if (httpRes.ok) {
+    const messages = payload["messages"];
+    const wamid = Array.isArray(messages) && messages.length > 0
+      ? (messages[0] as Record<string, unknown>)["id"]
+      : undefined;
+    if (typeof wamid === "string" && wamid) return { wamid };
+    return { errorCode: "UNEXPECTED_RESPONSE", errorMessage: "No wamid in Meta response" };
+  }
+
+  const errObj = payload["error"] as Record<string, unknown> | undefined;
+  return {
+    errorCode:    String(errObj?.["code"]    ?? httpRes.status),
+    errorMessage: String(errObj?.["message"] ?? `HTTP ${httpRes.status}`),
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // POST /api/whatsapp/upload-url
 //
 // Issues a Supabase Storage signed upload URL so the browser can PUT the media
@@ -695,35 +889,320 @@ router.get("/whatsapp/messages/:conversationId", async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /api/whatsapp/templates/sync
+// GET /api/whatsapp/templates
 // ─────────────────────────────────────────────────────────────────────────────
+
+const TemplatesQuerySchema = z.object({
+  status:   z.enum(["draft", "pending_approval", "approved", "rejected", "paused"]).default("approved"),
+  category: z.enum(["AUTHENTICATION", "MARKETING", "UTILITY"]).optional(),
+});
+
+router.get("/whatsapp/templates", async (req, res) => {
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+  const { companyId } = auth;
+
+  const parsed = TemplatesQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    res.status(400).json({ error: zodError(parsed.error) });
+    return;
+  }
+  const { status, category } = parsed.data;
+
+  let query = supabase
+    .from("whatsapp_templates")
+    .select(
+      `id, name, category, language, status,
+       header_type, header_content, body_text, footer_text, buttons,
+       external_id, rejection_reason, created_at, updated_at`,
+    )
+    .eq("company_id", companyId)
+    .is("deleted_at", null)
+    .eq("status", status)
+    .order("name", { ascending: true });
+
+  if (category) query = query.eq("category", category);
+
+  const { data: templates, error } = await query;
+
+  if (error) {
+    console.error("[whatsapp/templates] query failed:", error.message);
+    res.status(500).json({ error: "Failed to fetch templates." });
+    return;
+  }
+
+  res.json({ templates: templates ?? [] });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/whatsapp/templates/sync
 //
-// Stub endpoint — the Meta Cloud API integration has not yet been connected.
-// When implemented this will:
-//   1. Call GET /<WABA_ID>/message_templates on the Graph API.
-//   2. Upsert results into whatsapp_templates (status, external_id, rejection_reason).
-//   3. Return a count of added / updated / removed templates.
+// Fetches approved templates from the Meta Graph API and upserts them into
+// whatsapp_templates. Requires WHATSAPP_ACCESS_TOKEN and WHATSAPP_WABA_ID.
+// ─────────────────────────────────────────────────────────────────────────────
 
 router.post("/whatsapp/templates/sync", async (req, res) => {
-  // ── Auth ───────────────────────────────────────────────────────────────────
   const auth = await requireAuth(req, res);
   if (!auth) return;
 
-  // ── Role check: managers and above only ────────────────────────────────────
   if (!MANAGER_ROLES.has(auth.role)) {
     res.status(403).json({ error: "Only managers and above can sync templates." });
     return;
   }
 
-  // ── Stub response ──────────────────────────────────────────────────────────
-  res.status(200).json({
-    success:   false,
-    synced:    false,
-    message:
-      "Template sync is not yet available. Connect the Meta WhatsApp Cloud API " +
-      "(WHATSAPP_API_TOKEN, WHATSAPP_PHONE_NUMBER_ID) to enable this endpoint.",
-    hint: "POST /api/whatsapp/templates/sync will upsert approved templates from Meta once configured.",
-  });
+  const { companyId, callerId } = auth;
+
+  const accessToken = process.env["WHATSAPP_ACCESS_TOKEN"]?.trim() ?? "";
+  const wabaId      = process.env["WHATSAPP_WABA_ID"]?.trim()       ?? "";
+
+  if (!accessToken || !wabaId) {
+    res.status(422).json({
+      success: false,
+      error:
+        "WHATSAPP_ACCESS_TOKEN and WHATSAPP_WABA_ID must both be set to sync templates.",
+    });
+    return;
+  }
+
+  // ── Fetch from Meta ─────────────────────────────────────────────────────────
+  const metaResult = await fetchAllMetaTemplates(wabaId, accessToken);
+
+  if ("errorCode" in metaResult) {
+    console.error("[whatsapp/templates/sync] Meta API error:", metaResult.errorCode, metaResult.errorMessage);
+    res.status(502).json({ success: false, error: `Meta API: ${metaResult.errorMessage}` });
+    return;
+  }
+
+  const { templates: metaTemplates } = metaResult;
+
+  if (metaTemplates.length === 0) {
+    res.json({ success: true, synced: 0, added: 0, updated: 0 });
+    return;
+  }
+
+  // ── Load existing to preserve original created_by ──────────────────────────
+  const { data: existing } = await supabase
+    .from("whatsapp_templates")
+    .select("name, created_by")
+    .eq("company_id", companyId)
+    .is("deleted_at", null);
+
+  const existingByName = new Map(
+    (existing ?? []).map(t => [t.name as string, t.created_by as string]),
+  );
+
+  const upsertRows = metaTemplates.map(tpl => ({
+    ...mapMetaTemplateRow(tpl, companyId, callerId),
+    // Preserve original creator; only set callerId for genuinely new rows
+    created_by: existingByName.get(tpl.name) ?? callerId,
+  }));
+
+  const { error: upsertErr } = await supabase
+    .from("whatsapp_templates")
+    .upsert(upsertRows, { onConflict: "company_id,name" });
+
+  if (upsertErr) {
+    console.error("[whatsapp/templates/sync] upsert failed:", upsertErr.message);
+    res.status(500).json({ success: false, error: "Failed to save templates." });
+    return;
+  }
+
+  const added   = metaTemplates.filter(t => !existingByName.has(t.name)).length;
+  const updated = metaTemplates.filter(t =>  existingByName.has(t.name)).length;
+
+  console.info(
+    "[whatsapp/templates/sync] synced %d templates (%d added, %d updated) for company %s",
+    metaTemplates.length, added, updated, companyId,
+  );
+
+  res.json({ success: true, synced: metaTemplates.length, added, updated });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/whatsapp/send-template
+//
+// Sends a WhatsApp Business template message to the contact in an existing
+// conversation. Validates that the template is approved and that enough
+// variable values were supplied.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SendTemplateSchema = z.object({
+  conversationId: z.string().regex(UUID_RE, "must be a valid UUID"),
+  templateId:     z.string().uuid("must be a valid UUID"),
+  /** Ordered substitution values for {{1}}, {{2}}, … body variables. */
+  templateParams: z.array(z.string().max(1024)).default([]),
+});
+
+router.post("/whatsapp/send-template", async (req, res) => {
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+  const { callerId, companyId } = auth;
+
+  const parsed = SendTemplateSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: zodError(parsed.error) });
+    return;
+  }
+  const { conversationId, templateId, templateParams } = parsed.data;
+
+  // ── Verify conversation ─────────────────────────────────────────────────────
+  const { data: conv, error: convErr } = await supabase
+    .from("whatsapp_conversations")
+    .select("id, status, contact_phone")
+    .eq("id", conversationId)
+    .eq("company_id", companyId)
+    .is("deleted_at", null)
+    .single();
+
+  if (convErr || !conv) {
+    res.status(404).json({ error: "Conversation not found." });
+    return;
+  }
+  if ((conv.status as string) === "blocked") {
+    res.status(422).json({ error: "Cannot send messages to a blocked conversation." });
+    return;
+  }
+
+  // ── Fetch & validate template ───────────────────────────────────────────────
+  const { data: tpl, error: tplErr } = await supabase
+    .from("whatsapp_templates")
+    .select("id, name, language, status, body_text")
+    .eq("id", templateId)
+    .eq("company_id", companyId)
+    .is("deleted_at", null)
+    .single();
+
+  if (tplErr || !tpl) {
+    res.status(404).json({ error: "Template not found." });
+    return;
+  }
+  if ((tpl.status as string) !== "approved") {
+    res.status(422).json({
+      error: `Template is not approved (current status: ${tpl.status}).`,
+    });
+    return;
+  }
+
+  // ── Validate variable count ─────────────────────────────────────────────────
+  const requiredVars = countTemplateVars(tpl.body_text as string);
+  if (templateParams.length < requiredVars) {
+    res.status(400).json({
+      error:
+        `Template requires ${requiredVars} variable${requiredVars !== 1 ? "s" : ""} ` +
+        `but ${templateParams.length} were provided.`,
+    });
+    return;
+  }
+
+  // Render body text with variables substituted (stored for display history)
+  const renderedBody = renderTemplateBody(tpl.body_text as string, templateParams);
+
+  // ── Insert message ──────────────────────────────────────────────────────────
+  const now = new Date().toISOString();
+
+  const { data: message, error: insertErr } = await supabase
+    .from("whatsapp_messages")
+    .insert({
+      conversation_id:   conversationId,
+      company_id:        companyId,
+      direction:         "outgoing",
+      message_type:      "template",
+      body:              renderedBody,
+      template_name:     tpl.name,
+      template_params:   templateParams,
+      status:            "pending",
+      status_updated_at: now,
+      sent_by:           callerId,
+    })
+    .select()
+    .single();
+
+  if (insertErr || !message) {
+    console.error("[whatsapp/send-template] insert failed:", insertErr?.message);
+    res.status(500).json({ error: "Failed to store template message." });
+    return;
+  }
+
+  // ── Update conversation.last_message_at ─────────────────────────────────────
+  const { error: convUpdateErr } = await supabase
+    .from("whatsapp_conversations")
+    .update({ last_message_at: now })
+    .eq("id", conversationId)
+    .eq("company_id", companyId);
+
+  if (convUpdateErr) {
+    console.error("[whatsapp/send-template] failed to update last_message_at:", convUpdateErr.message);
+  }
+
+  // ── Meta Cloud API delivery ─────────────────────────────────────────────────
+  const accessToken   = process.env["WHATSAPP_ACCESS_TOKEN"]?.trim()    ?? "";
+  const phoneNumberId = process.env["WHATSAPP_PHONE_NUMBER_ID"]?.trim() ?? "";
+  const metaConfigured = !!(accessToken && phoneNumberId);
+
+  let finalMessage = message;
+
+  if (metaConfigured) {
+    const metaResult = await sendTemplateViaMetaApi(
+      conv.contact_phone as string,
+      tpl.name           as string,
+      tpl.language       as string,
+      templateParams,
+      accessToken,
+      phoneNumberId,
+    );
+
+    const statusTs = new Date().toISOString();
+
+    if (isMetaSuccess(metaResult)) {
+      const { data: updated, error: patchErr } = await supabase
+        .from("whatsapp_messages")
+        .update({
+          external_id:       metaResult.wamid,
+          status:            "sent",
+          status_updated_at: statusTs,
+          error_code:        null,
+          error_message:     null,
+        })
+        .eq("id", message.id)
+        .eq("company_id", companyId)
+        .select()
+        .single();
+
+      if (patchErr) {
+        console.error("[whatsapp/send-template] failed to patch after Meta success:", patchErr.message);
+      } else if (updated) {
+        finalMessage = updated;
+      }
+    } else {
+      console.error("[whatsapp/send-template] Meta error:", metaResult.errorCode, metaResult.errorMessage);
+
+      const { data: updated, error: patchErr } = await supabase
+        .from("whatsapp_messages")
+        .update({
+          status:            "failed",
+          status_updated_at: statusTs,
+          error_code:        metaResult.errorCode,
+          error_message:     metaResult.errorMessage,
+        })
+        .eq("id", message.id)
+        .eq("company_id", companyId)
+        .select()
+        .single();
+
+      if (patchErr) {
+        console.error("[whatsapp/send-template] failed to patch after Meta failure:", patchErr.message);
+      } else if (updated) {
+        finalMessage = updated;
+      }
+    }
+  } else {
+    console.warn(
+      "[whatsapp/send-template] WHATSAPP_ACCESS_TOKEN or WHATSAPP_PHONE_NUMBER_ID not set — " +
+      "template message stored as pending.",
+    );
+  }
+
+  res.status(201).json({ success: true, message: finalMessage });
 });
 
 export default router;

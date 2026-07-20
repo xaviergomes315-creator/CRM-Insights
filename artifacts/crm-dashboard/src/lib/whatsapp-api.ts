@@ -177,6 +177,88 @@ export function uploadFileToStorage(
   });
 }
 
+// ── Templates ─────────────────────────────────────────────────────────────────
+
+export type WaTemplateStatus   = 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'paused';
+export type WaTemplateCategory = 'AUTHENTICATION' | 'MARKETING' | 'UTILITY';
+export type WaTemplateHeaderType = 'none' | 'text' | 'image' | 'document' | 'video';
+
+export interface WaTemplate {
+  id:               string;
+  name:             string;
+  category:         WaTemplateCategory;
+  language:         string;
+  status:           WaTemplateStatus;
+  header_type:      WaTemplateHeaderType | null;
+  header_content:   string | null;
+  body_text:        string;
+  footer_text:      string;
+  buttons:          unknown[];
+  external_id:      string | null;
+  rejection_reason: string | null;
+  created_at:       string;
+  updated_at:       string;
+}
+
+export async function fetchTemplates(
+  token:  string,
+  status  = 'approved',
+): Promise<{ templates: WaTemplate[] }> {
+  const p = new URLSearchParams({ status });
+  const res = await fetch(`${BASE}/templates?${p}`, { headers: authHeaders(token) });
+  return parseOrThrow<{ templates: WaTemplate[] }>(res);
+}
+
+export async function syncTemplates(
+  token: string,
+): Promise<{ success: boolean; synced: number; added: number; updated: number }> {
+  const res = await fetch(`${BASE}/templates/sync`, {
+    method:  'POST',
+    headers: authHeaders(token),
+  });
+  return parseOrThrow(res);
+}
+
+export interface SendTemplatePayload {
+  conversationId: string;
+  templateId:     string;
+  /** Ordered substitution values for {{1}}, {{2}}, … body variables. */
+  templateParams: string[];
+}
+
+export async function sendTemplateMessage(
+  token:   string,
+  payload: SendTemplatePayload,
+): Promise<{ success: boolean; message: WaMessage }> {
+  const res = await fetch(`${BASE}/send-template`, {
+    method:  'POST',
+    headers: authHeaders(token),
+    body:    JSON.stringify(payload),
+  });
+  return parseOrThrow(res);
+}
+
+/**
+ * Returns sorted unique variable indices from a template body string.
+ * e.g. "Hello {{1}}, your order {{2}} is ready." → [1, 2]
+ */
+export function extractTemplateVars(bodyText: string): number[] {
+  const matches = [...bodyText.matchAll(/\{\{(\d+)\}\}/g)];
+  const indices = new Set(matches.map(m => parseInt(m[1], 10)));
+  return Array.from(indices).sort((a, b) => a - b);
+}
+
+/**
+ * Substitutes {{n}} placeholders with the corresponding value.
+ * Placeholders not yet filled keep their original form for preview purposes.
+ */
+export function renderTemplateBody(bodyText: string, params: string[]): string {
+  return bodyText.replace(/\{\{(\d+)\}\}/g, (match, n) => {
+    const val = params[parseInt(n, 10) - 1];
+    return val !== undefined && val.trim() !== '' ? val : match;
+  });
+}
+
 // ── Unread tracking (localStorage) ───────────────────────────────────────────
 
 const LS_PREFIX = 'wa_last_seen_';

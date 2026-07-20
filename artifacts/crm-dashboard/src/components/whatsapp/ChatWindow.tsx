@@ -3,7 +3,7 @@ import {
   ArrowLeft, Phone, MoreVertical,
   Check, CheckCheck, Clock, AlertCircle,
   Send, Loader2, RefreshCw, ChevronDown,
-  Paperclip, X, FileText, Music2,
+  Paperclip, X, FileText, Music2, LayoutTemplate,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useAuth } from '@/contexts/AuthContext';
@@ -17,11 +17,13 @@ import {
   dateSeparator,
   fetchMessages,
   sendMessage,
+  sendTemplateMessage,
   markConversationSeen,
   requestUploadUrl,
   uploadFileToStorage,
 } from '@/lib/whatsapp-api';
 import { useMessagesRealtime } from '@/hooks/useWhatsAppRealtime';
+import TemplatePicker from './TemplatePicker';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -139,7 +141,6 @@ function MessageBubble({ msg }: { msg: WaMessage }) {
     isOptimistic && 'opacity-70',
   );
 
-  // Shared footer: timestamp + status tick
   const footer = (
     <div className={clsx('flex items-center gap-1', outgoing ? 'justify-end' : 'justify-start')}>
       <span className={clsx('text-[10px]', outgoing ? 'text-white/60' : 'text-muted-foreground')}>
@@ -153,7 +154,39 @@ function MessageBubble({ msg }: { msg: WaMessage }) {
     ? <p className="mt-1 text-[10px] text-red-300 leading-tight">{msg.error_message}</p>
     : null;
 
-  // ── Image ──────────────────────────────────────────────────────────────────
+  // ── Template ─────────────────────────────────────────────────────────────
+  if (type === 'template') {
+    return (
+      <div className={clsx('flex', outgoing ? 'justify-end' : 'justify-start')}>
+        <div className={clsx(bubbleBase, 'px-3.5 py-2.5')}>
+          {msg.template_name && (
+            <div className={clsx(
+              'flex items-center gap-1.5 mb-2 pb-1.5 border-b',
+              outgoing ? 'border-white/20' : 'border-border',
+            )}>
+              <LayoutTemplate className={clsx(
+                'h-3 w-3 flex-shrink-0',
+                outgoing ? 'text-white/50' : 'text-muted-foreground',
+              )} />
+              <span className={clsx(
+                'text-[10px] font-mono font-medium truncate',
+                outgoing ? 'text-white/60' : 'text-muted-foreground',
+              )}>
+                {msg.template_name}
+              </span>
+            </div>
+          )}
+          <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+            {msg.body || <span className="italic opacity-60">[template]</span>}
+          </p>
+          <div className="mt-1.5">{footer}</div>
+          {errorLine}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Image ─────────────────────────────────────────────────────────────────
   if (type === 'image' && msg.media_url) {
     return (
       <div className={clsx('flex', outgoing ? 'justify-end' : 'justify-start')}>
@@ -178,7 +211,7 @@ function MessageBubble({ msg }: { msg: WaMessage }) {
     );
   }
 
-  // ── Video ──────────────────────────────────────────────────────────────────
+  // ── Video ─────────────────────────────────────────────────────────────────
   if (type === 'video' && msg.media_url) {
     return (
       <div className={clsx('flex', outgoing ? 'justify-end' : 'justify-start')}>
@@ -199,7 +232,7 @@ function MessageBubble({ msg }: { msg: WaMessage }) {
     );
   }
 
-  // ── Audio ──────────────────────────────────────────────────────────────────
+  // ── Audio ─────────────────────────────────────────────────────────────────
   if (type === 'audio' && msg.media_url) {
     return (
       <div className={clsx('flex', outgoing ? 'justify-end' : 'justify-start')}>
@@ -218,7 +251,7 @@ function MessageBubble({ msg }: { msg: WaMessage }) {
     );
   }
 
-  // ── Document ───────────────────────────────────────────────────────────────
+  // ── Document ──────────────────────────────────────────────────────────────
   if (type === 'document') {
     return (
       <div className={clsx('flex', outgoing ? 'justify-end' : 'justify-start')}>
@@ -241,7 +274,7 @@ function MessageBubble({ msg }: { msg: WaMessage }) {
     );
   }
 
-  // ── Text (default) ─────────────────────────────────────────────────────────
+  // ── Text (default) ────────────────────────────────────────────────────────
   return (
     <div className={clsx('flex', outgoing ? 'justify-end' : 'justify-start')}>
       <div className={clsx(bubbleBase, 'px-3.5 py-2.5')}>
@@ -277,20 +310,15 @@ function DateSep({ label }: { label: string }) {
 }
 
 // ── AttachmentPreview ──────────────────────────────────────────────────────────
-//
-// Panel shown above the composer when a file is attached.
-// uploadProgress: null = not uploading yet, 0–99 = uploading, 100 = sending via API.
 
 interface AttachmentState {
   file:       File;
-  previewUrl: string;  // blob: URL created via URL.createObjectURL
+  previewUrl: string;
   msgType:    WaMsgType;
 }
 
 function AttachmentPreview({
-  attachment,
-  uploadProgress,
-  onRemove,
+  attachment, uploadProgress, onRemove,
 }: {
   attachment:     AttachmentState;
   uploadProgress: number | null;
@@ -302,8 +330,6 @@ function AttachmentPreview({
   return (
     <div className="flex-shrink-0 border-t border-border bg-muted/20 px-4 py-3">
       <div className="flex items-start gap-3">
-
-        {/* Thumbnail */}
         <div className="h-16 w-16 rounded-xl overflow-hidden flex-shrink-0 bg-muted border border-border">
           {msgType === 'image' && (
             <img src={previewUrl} alt="preview" className="h-full w-full object-cover" />
@@ -324,13 +350,11 @@ function AttachmentPreview({
           )}
         </div>
 
-        {/* File info + progress */}
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-foreground truncate">{file.name}</p>
           <p className="text-xs text-muted-foreground mt-0.5">
             {formatBytes(file.size)} · {mimeLabel(file.type)}
           </p>
-
           {isActive && (
             <div className="mt-2">
               <div className="flex items-center justify-between mb-1">
@@ -353,7 +377,6 @@ function AttachmentPreview({
           )}
         </div>
 
-        {/* Remove (disabled while sending) */}
         {!isActive && (
           <button
             onClick={onRemove}
@@ -401,6 +424,9 @@ export default function ChatWindow({ conversation, token, onBack, onMessageSent 
   const [attachment,     setAttachment]     = useState<AttachmentState | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
 
+  // ── Template picker state ──────────────────────────────────────────────────
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+
   // ── Refs ───────────────────────────────────────────────────────────────────
   const scrollRef    = useRef<HTMLDivElement>(null);
   const sentinelRef  = useRef<HTMLDivElement>(null);
@@ -425,7 +451,7 @@ export default function ChatWindow({ conversation, token, onBack, onMessageSent 
     if (isNearBottom() && unreadCount > 0) setUnreadCount(0);
   };
 
-  // ── Load initial messages (most-recent PAGE_SIZE) ──────────────────────────
+  // ── Load initial messages ──────────────────────────────────────────────────
 
   const loadInitial = useCallback(async () => {
     setIsLoading(true);
@@ -462,7 +488,7 @@ export default function ChatWindow({ conversation, token, onBack, onMessageSent 
 
   useEffect(() => { loadInitial(); }, [loadInitial]);
 
-  // ── Load older messages (IntersectionObserver at top) ─────────────────────
+  // ── Load older messages ────────────────────────────────────────────────────
 
   const loadOlder = useCallback(async () => {
     if (loadingOlder || earliestOffset === null || earliestOffset <= 0) return;
@@ -501,7 +527,7 @@ export default function ChatWindow({ conversation, token, onBack, onMessageSent 
     return () => obs.disconnect();
   }, [hasOlderMessages, loadOlder]);
 
-  // ── Realtime: incoming messages + status updates ───────────────────────────
+  // ── Realtime ───────────────────────────────────────────────────────────────
 
   const handleRealtimeInsert = useCallback((msg: WaMessage) => {
     setMessages(prev => {
@@ -528,7 +554,7 @@ export default function ChatWindow({ conversation, token, onBack, onMessageSent 
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    e.target.value = ''; // allow re-selecting the same file
+    e.target.value = '';
     if (!file) return;
 
     if (file.size > MAX_FILE_BYTES) {
@@ -536,7 +562,6 @@ export default function ChatWindow({ conversation, token, onBack, onMessageSent 
       return;
     }
 
-    // Revoke any previous preview URL to avoid memory leaks
     if (attachment) URL.revokeObjectURL(attachment.previewUrl);
 
     setAttachment({
@@ -552,13 +577,12 @@ export default function ChatWindow({ conversation, token, onBack, onMessageSent 
     setAttachment(null);
   }, [attachment]);
 
-  // Revoke object URL on unmount to avoid memory leaks
   useEffect(() => {
     return () => { if (attachment) URL.revokeObjectURL(attachment.previewUrl); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Send message ───────────────────────────────────────────────────────────
+  // ── Send text / media message ──────────────────────────────────────────────
 
   const handleSend = async () => {
     const body = draft.trim();
@@ -571,7 +595,7 @@ export default function ChatWindow({ conversation, token, onBack, onMessageSent 
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
 
     const optimisticId      = `optimistic-${Date.now()}`;
-    const pendingAttachment = attachment; // snapshot before any state clears
+    const pendingAttachment = attachment;
 
     const optimistic: WaMessage = {
       id:                optimisticId,
@@ -604,7 +628,6 @@ export default function ChatWindow({ conversation, token, onBack, onMessageSent 
       const msgType: WaMsgType = pendingAttachment?.msgType ?? 'text';
 
       if (pendingAttachment) {
-        // ── Step 1: get signed upload URL from backend ───────────────────
         setUploadProgress(0);
         const uploadData = await requestUploadUrl(token, {
           conversationId: conversation.id,
@@ -612,26 +635,22 @@ export default function ChatWindow({ conversation, token, onBack, onMessageSent 
           mimeType:       pendingAttachment.file.type,
         });
 
-        // ── Step 2: PUT file directly to Supabase Storage ────────────────
         await uploadFileToStorage(
           uploadData.signedUrl,
           pendingAttachment.file,
           setUploadProgress,
         );
-        setUploadProgress(100); // hold at 100% while API call is in-flight
+        setUploadProgress(100);
 
         mediaUrl      = uploadData.publicUrl;
         mediaMimeType = pendingAttachment.file.type;
         mediaFilename = pendingAttachment.file.name;
 
-        // Swap the blob: URL in the optimistic message for the real Storage URL
-        // so the image/video/audio renders from Supabase immediately
         setMessages(prev => prev.map(m =>
           m.id === optimisticId ? { ...m, media_url: mediaUrl! } : m,
         ));
       }
 
-      // ── Step 3: record + dispatch via backend API ────────────────────────
       const { message: real } = await sendMessage(token, {
         conversationId: conversation.id,
         body,
@@ -641,7 +660,6 @@ export default function ChatWindow({ conversation, token, onBack, onMessageSent 
         mediaFilename,
       });
 
-      // Race-safe replacement of the optimistic entry
       setMessages(prev => {
         const hasReal = prev.some(m => m.id === real.id);
         if (hasReal) return prev.filter(m => m.id !== optimisticId);
@@ -657,7 +675,6 @@ export default function ChatWindow({ conversation, token, onBack, onMessageSent 
           : m,
       ));
     } finally {
-      // Delay revocation so the optimistic image has time to swap to the real URL
       if (pendingAttachment) {
         const url = pendingAttachment.previewUrl;
         setTimeout(() => URL.revokeObjectURL(url), 3000);
@@ -668,6 +685,73 @@ export default function ChatWindow({ conversation, token, onBack, onMessageSent 
       textareaRef.current?.focus();
     }
   };
+
+  // ── Send template message ──────────────────────────────────────────────────
+
+  const handleTemplateSend = useCallback(async (
+    templateId:   string,
+    templateName: string,
+    renderedBody: string,
+    params:       string[],
+  ) => {
+    setShowTemplatePicker(false);
+    setSending(true);
+    setSendError(null);
+
+    const optimisticId = `optimistic-${Date.now()}`;
+
+    const optimistic: WaMessage = {
+      id:                optimisticId,
+      conversation_id:   conversation.id,
+      direction:         'outgoing',
+      message_type:      'template',
+      body:              renderedBody,
+      media_url:         null,
+      media_mime_type:   null,
+      media_filename:    null,
+      template_name:     templateName,
+      template_params:   params as unknown as Record<string, unknown>,
+      status:            'pending',
+      status_updated_at: null,
+      error_code:        null,
+      error_message:     null,
+      external_id:       null,
+      sent_by:           null,
+      created_at:        new Date().toISOString(),
+      updated_at:        new Date().toISOString(),
+    };
+
+    setMessages(prev => [...prev, optimistic]);
+    scrollToBottom('instant' as ScrollBehavior);
+
+    try {
+      const { message: real } = await sendTemplateMessage(token, {
+        conversationId: conversation.id,
+        templateId,
+        templateParams: params,
+      });
+
+      setMessages(prev => {
+        const hasReal = prev.some(m => m.id === real.id);
+        if (hasReal) return prev.filter(m => m.id !== optimisticId);
+        return prev.map(m => m.id === optimisticId ? real : m);
+      });
+      setTotal(t => t + 1);
+      onMessageSent();
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : 'Failed to send template.');
+      setMessages(prev => prev.map(m =>
+        m.id === optimisticId
+          ? { ...m, status: 'failed' as WaMsgStatus, error_message: String(err) }
+          : m,
+      ));
+    } finally {
+      setSending(false);
+      textareaRef.current?.focus();
+    }
+  }, [conversation.id, token, onMessageSent]);
+
+  // ── Keyboard ───────────────────────────────────────────────────────────────
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
@@ -746,7 +830,6 @@ export default function ChatWindow({ conversation, token, onBack, onMessageSent 
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto px-4 py-3 space-y-1 bg-[url('data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23000000\' fill-opacity=\'0.02\'%3E%3Cpath d=\'m36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30v4h-4v2h4v4h2v-4h4v-2h-4v-4h-2zm-24 18v4h-4v2h4v4h2v-4h4v-2h-4v-4h-2z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E')]"
       >
-        {/* Top sentinel for IntersectionObserver */}
         <div ref={sentinelRef} className="h-1" />
 
         {loadingOlder && (
@@ -839,11 +922,30 @@ export default function ChatWindow({ conversation, token, onBack, onMessageSent 
           {/* Attachment button */}
           <button
             onClick={() => fileInputRef.current?.click()}
-            disabled={sending}
+            disabled={sending || showTemplatePicker}
             aria-label="Attach file"
             className="flex-shrink-0 h-11 w-11 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors disabled:opacity-40"
           >
             <Paperclip className="h-5 w-5" />
+          </button>
+
+          {/* Template picker button */}
+          <button
+            onClick={() => {
+              setShowTemplatePicker(v => !v);
+              setSendError(null);
+            }}
+            disabled={sending || !!attachment}
+            aria-label="Use a message template"
+            title="Message template"
+            className={clsx(
+              'flex-shrink-0 h-11 w-11 rounded-full flex items-center justify-center transition-colors disabled:opacity-40',
+              showTemplatePicker
+                ? 'bg-primary/10 text-primary ring-1 ring-primary/30'
+                : 'text-muted-foreground hover:bg-muted',
+            )}
+          >
+            <LayoutTemplate className="h-5 w-5" />
           </button>
 
           {/* Draft textarea */}
@@ -855,7 +957,7 @@ export default function ChatWindow({ conversation, token, onBack, onMessageSent 
             placeholder={attachment ? 'Add a caption… (optional)' : 'Type a message…'}
             rows={1}
             maxLength={4096}
-            disabled={sending}
+            disabled={sending || showTemplatePicker}
             className="flex-1 resize-none rounded-2xl border border-border bg-muted/40 px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 transition-colors disabled:opacity-60 leading-relaxed overflow-hidden"
             style={{ minHeight: '2.75rem', maxHeight: '140px' }}
           />
@@ -883,6 +985,16 @@ export default function ChatWindow({ conversation, token, onBack, onMessageSent 
           Enter to send · Shift+Enter for new line · {draft.length}/4096
         </p>
       </div>
+
+      {/* ── Template picker overlay ─────────────────────────────────────────── */}
+      {showTemplatePicker && (
+        <TemplatePicker
+          token={token}
+          onConfirm={handleTemplateSend}
+          onClose={() => setShowTemplatePicker(false)}
+          disabled={sending}
+        />
+      )}
     </div>
   );
 }
