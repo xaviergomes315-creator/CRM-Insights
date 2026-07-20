@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { clsx } from 'clsx';
 import {
-  FileText, Download, Share2, Plus, Trash2, Save, Loader2, FilePlus,
+  FileText, Download, Mail, Share2, Plus, Trash2, Save, Loader2, FilePlus,
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import { toast } from 'sonner';
@@ -271,6 +271,7 @@ export default function ProposalPage() {
   const [saving,           setSaving]           = useState(false);
   const [loadingProposal,  setLoadingProposal]  = useState(false);
   const [deletingId,       setDeletingId]       = useState<string | null>(null);
+  const [sending,          setSending]          = useState(false);
 
   // ── UI state ───────────────────────────────────────────────────────────────
   /** UUID of the proposal currently loaded in the form; null when composing new */
@@ -547,9 +548,9 @@ export default function ProposalPage() {
     setSaving(false);
   };
 
-  // ── PDF download ───────────────────────────────────────────────────────────
+  // ── PDF builder (shared between Download and Send via Email) ─────────────────
 
-  const handlePrint = async () => {
+  const buildProposalDoc = async (): Promise<jsPDF> => {
     const doc = new jsPDF({ unit: 'mm', format: 'a4' });
 
     const pageW  = 210;
@@ -813,12 +814,70 @@ export default function ProposalPage() {
     if (footerLeft) doc.text(footerLeft, margin, pageH - 10);
     doc.text('Thank you for your business!', pageW - margin, pageH - 10, { align: 'right' });
 
-    // ── Save ──────────────────────────────────────────────────────────────────
+    return doc;
+  };
+
+  // ── PDF download ───────────────────────────────────────────────────────────
+
+  const handlePrint = async () => {
+    const doc      = await buildProposalDoc();
     const safeName = (form.clientName || 'Client').replace(/\s+/g, '_');
     const filename = savedProposalNum
       ? `Proposal-${savedProposalNum}-${safeName}.pdf`
       : `Proposal-${safeName}.pdf`;
     doc.save(filename);
+  };
+
+  // ── Send via Email ─────────────────────────────────────────────────────────
+
+  const handleSendEmail = async () => {
+    if (!savedProposalId) {
+      toast.error('Save the proposal before sending.');
+      return;
+    }
+    if (!form.clientEmail) {
+      toast.error('No client email address on this proposal.');
+      return;
+    }
+
+    setSending(true);
+    try {
+      const doc       = await buildProposalDoc();
+      const pdfBase64 = doc.output('datauristring').split(',')[1];
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        toast.error('Session expired — please log in again.');
+        setSending(false);
+        return;
+      }
+
+      const res = await fetch('/api/proposals/send-email', {
+        method:  'POST',
+        headers: {
+          'Content-Type':  'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ proposalId: savedProposalId, pdfBase64 }),
+      });
+
+      const json = await res.json().catch(() => ({})) as { error?: string };
+
+      if (!res.ok) {
+        toast.error('Failed to send email', { description: json.error ?? res.statusText });
+        setSending(false);
+        return;
+      }
+
+      toast.success(`Proposal sent to ${form.clientEmail}`);
+      // Reflect the status change locally and refresh the list
+      setField('status', 'Sent');
+      await fetchProposals();
+    } catch (err) {
+      console.error('[ProposalPage] send email error', err);
+      toast.error('Unexpected error while sending email');
+    }
+    setSending(false);
   };
 
   // ── WhatsApp share ─────────────────────────────────────────────────────────
@@ -1199,6 +1258,23 @@ export default function ProposalPage() {
                 >
                   <Download className="h-4 w-4" />
                   Download PDF
+                </button>
+                <button
+                  onClick={handleSendEmail}
+                  disabled={sending || !savedProposalId || !form.clientEmail}
+                  title={
+                    !savedProposalId
+                      ? 'Save the proposal first'
+                      : !form.clientEmail
+                        ? 'No client email on this proposal'
+                        : 'Send PDF to client via email'
+                  }
+                  className="flex items-center gap-2 rounded-xl bg-primary text-primary-foreground font-medium px-4 py-2.5 text-sm hover:bg-primary/90 transition-colors min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {sending
+                    ? <><Loader2 className="h-4 w-4 animate-spin" /> Sending…</>
+                    : <><Mail className="h-4 w-4" /> Send via Email</>
+                  }
                 </button>
                 <button
                   onClick={handleWhatsApp}
