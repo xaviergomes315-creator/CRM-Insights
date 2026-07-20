@@ -23,6 +23,7 @@ import {
   ShieldCheck,
   Receipt,
   Zap,
+  Megaphone,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -57,7 +58,8 @@ export default function DashboardLayout() {
     { name: "Telecaller",       href: "/telecaller",      icon: Phone           },
     { name: "Tasks",            href: "/tasks",           icon: CheckSquare     },
     { name: "Proposals",        href: "/proposals",       icon: FileText        },
-    { name: "WhatsApp",         href: "/whatsapp",        icon: MessageCircle   },
+    { name: "WhatsApp",         href: "/whatsapp",             icon: MessageCircle, matchPrefix: false },
+    { name: "WA Campaigns",    href: "/whatsapp/campaigns",   icon: Megaphone                    },
     { name: "Social Media",     href: "/social-media",    icon: Share2          },
     { name: "HR",               href: "/hr",              icon: Briefcase       },
     { name: "Website Projects", href: "/website-projects",icon: Globe,          matchPrefix: true },

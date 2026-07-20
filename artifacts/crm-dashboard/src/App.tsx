@@ -15,6 +15,7 @@ import LeadsPage from '@/pages/LeadsPage';
 import TelecallerPage from '@/pages/TelecallerPage';
 import InvoicePage from '@/pages/InvoicePage';
 import WhatsAppPage from '@/pages/WhatsAppPage';
+import WhatsAppCampaignsPage from '@/pages/WhatsAppCampaignsPage';
 import SocialMediaPage from '@/pages/SocialMediaPage';
 import AnalyticsPage from '@/pages/AnalyticsPage';
 import PipelineView from '@/pages/PipelineView';
@@ -60,7 +61,8 @@ function App() {
                       <Route path="/telecaller"   element={<TelecallerPage />}/>
                       <Route path="/tasks"        element={<TasksPage />}     />
                       <Route path="/proposals"    element={<ProposalPage />}  />
-                      <Route path="/whatsapp"     element={<WhatsAppPage />}  />
+                      <Route path="/whatsapp"           element={<WhatsAppPage />}          />
+                      <Route path="/whatsapp/campaigns" element={<WhatsAppCampaignsPage />} />
                       <Route path="/social-media" element={<SocialMediaPage />}/>
                       <Route path="/hr"              element={<HRPage />}              />
                       <Route path="/website-projects"     element={<WebsiteProjectsPage />}       />
