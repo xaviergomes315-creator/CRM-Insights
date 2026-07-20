@@ -268,6 +268,7 @@ export default function ProposalPage() {
   const [loadingList,      setLoadingList]      = useState(true);
   const [saving,           setSaving]           = useState(false);
   const [loadingProposal,  setLoadingProposal]  = useState(false);
+  const [deletingId,       setDeletingId]       = useState<string | null>(null);
 
   // ── UI state ───────────────────────────────────────────────────────────────
   /** UUID of the proposal currently loaded in the form; null when composing new */
@@ -355,6 +356,36 @@ export default function ProposalPage() {
     setSavedProposalId(id);
     setSavedProposalNum(p.proposal_number as string);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // ── Soft-delete a proposal ────────────────────────────────────────────────
+
+  const handleDelete = async (id: string, proposalNumber: string) => {
+    if (!window.confirm(`Delete proposal ${proposalNumber}? This cannot be undone from the app.`)) return;
+
+    setDeletingId(id);
+
+    const { error } = await supabase
+      .from('proposals')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('id', id);
+
+    setDeletingId(null);
+
+    if (error) {
+      console.error('[ProposalPage] soft-delete error', error);
+      toast.error('Could not delete proposal', { description: error.message });
+      return;
+    }
+
+    toast.success(`Proposal ${proposalNumber} deleted`);
+
+    // If the deleted proposal was loaded in the form, reset to blank
+    if (savedProposalId === id) {
+      handleNew();
+    }
+
+    await fetchProposals();
   };
 
   // ── Reset to a blank new proposal ─────────────────────────────────────────
@@ -680,18 +711,32 @@ export default function ProposalPage() {
                       <td className="px-5 py-3 text-muted-foreground">
                         {fmtDateShort(p.created_at)}
                       </td>
-                      <td className="px-5 py-3 text-right">
-                        {loadingProposal && savedProposalId === p.id ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground ml-auto" />
-                        ) : (
-                          <button
-                            onClick={() => handleLoad(p.id)}
-                            disabled={savedProposalId === p.id}
-                            className="text-xs font-medium text-primary hover:text-primary/80 disabled:opacity-40 disabled:cursor-default transition-colors"
-                          >
-                            {savedProposalId === p.id ? 'Loaded' : 'Load'}
-                          </button>
-                        )}
+                      <td className="px-5 py-3">
+                        <div className="flex items-center justify-end gap-3">
+                          {loadingProposal && savedProposalId === p.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                          ) : (
+                            <button
+                              onClick={() => handleLoad(p.id)}
+                              disabled={savedProposalId === p.id}
+                              className="text-xs font-medium text-primary hover:text-primary/80 disabled:opacity-40 disabled:cursor-default transition-colors"
+                            >
+                              {savedProposalId === p.id ? 'Loaded' : 'Load'}
+                            </button>
+                          )}
+                          {deletingId === p.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                          ) : (
+                            <button
+                              onClick={() => handleDelete(p.id, p.proposal_number)}
+                              disabled={deletingId !== null}
+                              className="flex items-center justify-center h-6 w-6 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-40"
+                              title="Delete proposal"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
