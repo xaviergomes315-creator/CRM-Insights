@@ -15,6 +15,7 @@ import {
   dateSeparator,
   fetchMessages,
   sendMessage,
+  markConversationSeen,
 } from '@/lib/whatsapp-api';
 import { useMessagesRealtime } from '@/hooks/useWhatsAppRealtime';
 
@@ -230,12 +231,15 @@ export default function ChatWindow({ conversation, token, onBack, onMessageSent 
 
     if (isNearBottom()) {
       scrollToBottom('smooth');
+      // User is actively viewing — mark seen so the sidebar badge doesn't
+      // flicker on when the conversation UPDATE event arrives via Realtime.
+      markConversationSeen(conversation.id);
     } else if (msg.direction === 'incoming') {
       // Only badge for incoming — outgoing from another agent session is
       // less urgent from the current user's perspective.
       setUnreadCount(c => c + 1);
     }
-  }, []); // deps intentionally empty: reads refs/scrollRef at call-time
+  }, [conversation.id]); // reads scrollRef at call-time; depends on conversation.id for markConversationSeen
 
   const handleRealtimeUpdate = useCallback((msg: WaMessage) => {
     setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, ...msg } : m));

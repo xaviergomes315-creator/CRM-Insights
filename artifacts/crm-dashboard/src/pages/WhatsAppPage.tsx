@@ -34,6 +34,9 @@ export default function WhatsAppPage() {
   const [showChat,     setShowChat]     = useState(false);
   const [search,       setSearch]       = useState('');
 
+  // ── Realtime: keep conversation list live ────────────────────────────────
+  useConversationsRealtime(companyId, token);
+
   // ── Conversations query ────────────────────────────────────────────────────
   const {
     data,
