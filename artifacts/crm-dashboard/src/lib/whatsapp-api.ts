@@ -96,8 +96,13 @@ export async function fetchMessages(
 
 export interface SendPayload {
   conversationId: string;
-  body:           string;
+  /** Plain-text body / caption. Required for text; optional for media. */
+  body?:          string;
   messageType?:   WaMsgType;
+  /** Populated for image / document / audio / video messages */
+  mediaUrl?:      string;
+  mediaMimeType?: string;
+  mediaFilename?: string;
 }
 
 export async function sendMessage(
@@ -110,6 +115,66 @@ export async function sendMessage(
     body:    JSON.stringify(payload),
   });
   return parseOrThrow(res);
+}
+
+// ── Media upload ─────────────────────────────────────────────────────────────
+
+export interface UploadUrlRequest {
+  conversationId: string;
+  filename:       string;
+  mimeType:       string;
+}
+
+export interface UploadUrlResponse {
+  signedUrl: string;
+  path:      string;
+  publicUrl: string;
+}
+
+/**
+ * Asks the API server for a Supabase Storage signed upload URL.
+ * The browser then PUTs the file directly to Supabase (see uploadFileToStorage).
+ */
+export async function requestUploadUrl(
+  token:   string,
+  payload: UploadUrlRequest,
+): Promise<UploadUrlResponse> {
+  const res = await fetch(`${BASE}/upload-url`, {
+    method:  'POST',
+    headers: authHeaders(token),
+    body:    JSON.stringify(payload),
+  });
+  return parseOrThrow<UploadUrlResponse>(res);
+}
+
+/**
+ * Uploads a file to Supabase Storage via the signed URL returned by
+ * requestUploadUrl. Uses XMLHttpRequest so upload progress can be tracked.
+ */
+export function uploadFileToStorage(
+  signedUrl:  string,
+  file:       File,
+  onProgress: (percent: number) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+    });
+
+    xhr.addEventListener('load', () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else reject(new Error(`Storage upload failed: HTTP ${xhr.status}`));
+    });
+
+    xhr.addEventListener('error', () => reject(new Error('Upload network error')));
+    xhr.addEventListener('abort', () => reject(new Error('Upload cancelled')));
+
+    xhr.open('PUT', signedUrl);
+    xhr.setRequestHeader('Content-Type', file.type);
+    xhr.send(file);
+  });
 }
 
 // ── Unread tracking (localStorage) ───────────────────────────────────────────

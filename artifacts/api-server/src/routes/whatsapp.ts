@@ -136,6 +136,194 @@ async function sendTextViaMetaApi(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Supabase Storage — media upload helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+const MEDIA_BUCKET = "whatsapp-media";
+let   _bucketReady = false;
+
+/** Creates the whatsapp-media bucket on first use (idempotent). */
+async function ensureMediaBucket(): Promise<void> {
+  if (_bucketReady) return;
+
+  const { data: buckets, error: listErr } = await supabase.storage.listBuckets();
+  if (listErr) {
+    console.warn("[whatsapp/storage] Could not list buckets:", listErr.message);
+    return;
+  }
+
+  if (buckets?.find((b) => b.name === MEDIA_BUCKET)) {
+    _bucketReady = true;
+    return;
+  }
+
+  const { error: createErr } = await supabase.storage.createBucket(MEDIA_BUCKET, {
+    public:           true, // public URLs so Meta can fetch the media bytes
+    fileSizeLimit:    52_428_800, // 50 MB
+    allowedMimeTypes: [
+      "image/jpeg", "image/png", "image/gif", "image/webp",
+      "application/pdf",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "audio/mpeg", "audio/ogg", "audio/wav", "audio/aac", "audio/mp4",
+      "video/mp4", "video/3gpp", "video/quicktime",
+    ],
+  });
+
+  if (createErr && !createErr.message.includes("already exists")) {
+    console.error("[whatsapp/storage] Failed to create bucket:", createErr.message);
+    return;
+  }
+
+  _bucketReady = true;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Meta WhatsApp Cloud API — media message delivery
+// ─────────────────────────────────────────────────────────────────────────────
+
+type MetaMediaType = "image" | "document" | "audio" | "video";
+
+/**
+ * Sends a media message (image / document / audio / video) via Meta Cloud API.
+ * The media must be publicly accessible at `mediaUrl` — Supabase public-bucket
+ * URLs satisfy this requirement.
+ */
+async function sendMediaViaMetaApi(
+  to:            string,
+  mediaType:     MetaMediaType,
+  mediaUrl:      string,
+  caption:       string,              // used for image / document / video; ignored for audio
+  filename:      string | undefined,  // document only
+  accessToken:   string,
+  phoneNumberId: string,
+): Promise<MetaResult> {
+  const url = `${META_API_BASE}/${META_API_VERSION}/${phoneNumberId}/messages`;
+
+  const mediaObj: Record<string, unknown> = { link: mediaUrl };
+  if (mediaType !== "audio" && caption)   mediaObj["caption"]  = caption;
+  if (mediaType === "document" && filename) mediaObj["filename"] = filename;
+
+  let httpRes: Response;
+  try {
+    httpRes = await fetch(url, {
+      method:  "POST",
+      headers: {
+        "Authorization": `Bearer ${accessToken}`,
+        "Content-Type":  "application/json",
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        recipient_type:    "individual",
+        to,
+        type:              mediaType,
+        [mediaType]:       mediaObj,
+      }),
+    });
+  } catch (networkErr) {
+    const msg = networkErr instanceof Error ? networkErr.message : String(networkErr);
+    return { errorCode: "NETWORK_ERROR", errorMessage: msg };
+  }
+
+  let payload: Record<string, unknown>;
+  try {
+    payload = (await httpRes.json()) as Record<string, unknown>;
+  } catch {
+    return {
+      errorCode:    "PARSE_ERROR",
+      errorMessage: `Meta API returned HTTP ${httpRes.status} with a non-JSON body`,
+    };
+  }
+
+  if (httpRes.ok) {
+    const messages = payload["messages"];
+    const wamid    =
+      Array.isArray(messages) && messages.length > 0
+        ? (messages[0] as Record<string, unknown>)["id"]
+        : undefined;
+
+    if (typeof wamid === "string" && wamid) return { wamid };
+    return {
+      errorCode:    "UNEXPECTED_RESPONSE",
+      errorMessage: `Meta API HTTP ${httpRes.status} but no wamid in response`,
+    };
+  }
+
+  const errObj = payload["error"] as Record<string, unknown> | undefined;
+  return {
+    errorCode:    String(errObj?.["code"]    ?? httpRes.status),
+    errorMessage: String(errObj?.["message"] ?? `HTTP ${httpRes.status}`),
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/whatsapp/upload-url
+//
+// Issues a Supabase Storage signed upload URL so the browser can PUT the media
+// file directly to Supabase (with XHR progress tracking) without routing the
+// bytes through this server. After a successful upload the browser calls /send
+// with the resulting publicUrl.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const UploadUrlSchema = z.object({
+  conversationId: z.string().regex(UUID_RE, "must be a valid UUID"),
+  filename:       z.string().min(1).max(255),
+  mimeType:       z.string().min(1).max(127),
+});
+
+router.post("/whatsapp/upload-url", async (req, res) => {
+  const auth = await requireAuth(req, res);
+  if (!auth) return;
+  const { companyId } = auth;
+
+  const parsed = UploadUrlSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: zodError(parsed.error) });
+    return;
+  }
+  const { conversationId, filename, mimeType } = parsed.data;
+
+  // Verify the conversation belongs to this company
+  const { data: conv, error: convErr } = await supabase
+    .from("whatsapp_conversations")
+    .select("id")
+    .eq("id", conversationId)
+    .eq("company_id", companyId)
+    .is("deleted_at", null)
+    .single();
+
+  if (convErr || !conv) {
+    res.status(404).json({ error: "Conversation not found." });
+    return;
+  }
+
+  await ensureMediaBucket();
+
+  // Collision-resistant path: company / conversation / timestamp-filename
+  const safeName    = filename.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 200);
+  const storagePath = `${companyId}/${conversationId}/${Date.now()}-${safeName}`;
+
+  const { data: uploadData, error: uploadErr } = await supabase.storage
+    .from(MEDIA_BUCKET)
+    .createSignedUploadUrl(storagePath);
+
+  if (uploadErr || !uploadData) {
+    console.error("[whatsapp/upload-url] createSignedUploadUrl failed:", uploadErr?.message);
+    res.status(500).json({ error: "Failed to create upload URL." });
+    return;
+  }
+
+  const { data: { publicUrl } } = supabase.storage
+    .from(MEDIA_BUCKET)
+    .getPublicUrl(storagePath);
+
+  res.status(200).json({
+    signedUrl: uploadData.signedUrl,
+    path:      storagePath,
+    publicUrl,
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // POST /api/whatsapp/send
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -251,32 +439,45 @@ router.post("/whatsapp/send", async (req, res) => {
     console.error("[whatsapp/send] failed to update last_message_at:", updateErr.message);
   }
 
-  // ── Meta Cloud API delivery (text messages only) ───────────────────────────
-  // Only attempt delivery when:
-  //   • The message type is "text" (other types not yet wired to Meta)
-  //   • Both required env vars are present
-  // On any outcome the message row is patched so the DB always reflects the
-  // real delivery state rather than staying on "pending" indefinitely.
+  // ── Meta Cloud API delivery ────────────────────────────────────────────────
+  // Dispatches text, image, document, audio, and video messages to the
+  // recipient via the Meta WhatsApp Cloud API when both required env vars are
+  // present. On any outcome the message row is patched so the DB always
+  // reflects the real delivery state rather than staying on "pending".
 
-  const accessToken   = process.env["WHATSAPP_ACCESS_TOKEN"]?.trim()       ?? "";
-  const phoneNumberId = process.env["WHATSAPP_PHONE_NUMBER_ID"]?.trim()    ?? "";
-  const metaConfigured = accessToken && phoneNumberId;
+  const accessToken    = process.env["WHATSAPP_ACCESS_TOKEN"]?.trim()    ?? "";
+  const phoneNumberId  = process.env["WHATSAPP_PHONE_NUMBER_ID"]?.trim() ?? "";
+  const metaConfigured = !!(accessToken && phoneNumberId);
+
+  const MEDIA_TYPES = new Set(["image", "document", "audio", "video"]);
+
+  // Dispatch when: meta is configured AND (text message OR media message with a URL)
+  const shouldDispatch =
+    metaConfigured &&
+    (messageType === "text" || (MEDIA_TYPES.has(messageType) && !!mediaUrl));
 
   let finalMessage = message;
 
-  if (messageType === "text" && metaConfigured) {
+  if (shouldDispatch) {
     const contactPhone = conv.contact_phone as string;
-    const metaResult   = await sendTextViaMetaApi(
-      contactPhone,
-      body,
-      accessToken,
-      phoneNumberId,
-    );
+
+    const metaResult =
+      messageType === "text"
+        ? await sendTextViaMetaApi(contactPhone, body, accessToken, phoneNumberId)
+        : await sendMediaViaMetaApi(
+            contactPhone,
+            messageType as MetaMediaType,
+            mediaUrl!,       // guarded by shouldDispatch condition
+            body,            // caption for image / document / video
+            mediaFilename,
+            accessToken,
+            phoneNumberId,
+          );
 
     const statusTs = new Date().toISOString();
 
     if (isMetaSuccess(metaResult)) {
-      // ── Delivery succeeded ────────────────────────────────────────────────
+      // ── Delivery succeeded ──────────────────────────────────────────────
       const { data: updated, error: patchErr } = await supabase
         .from("whatsapp_messages")
         .update({
@@ -287,7 +488,7 @@ router.post("/whatsapp/send", async (req, res) => {
           error_message:     null,
         })
         .eq("id", message.id)
-        .eq("company_id", companyId)   // tenant guard
+        .eq("company_id", companyId)
         .select()
         .single();
 
@@ -297,12 +498,8 @@ router.post("/whatsapp/send", async (req, res) => {
         finalMessage = updated;
       }
     } else {
-      // ── Delivery failed ───────────────────────────────────────────────────
-      console.error(
-        "[whatsapp/send] Meta API error:",
-        metaResult.errorCode,
-        metaResult.errorMessage,
-      );
+      // ── Delivery failed ─────────────────────────────────────────────────
+      console.error("[whatsapp/send] Meta API error:", metaResult.errorCode, metaResult.errorMessage);
 
       const { data: updated, error: patchErr } = await supabase
         .from("whatsapp_messages")
@@ -313,7 +510,7 @@ router.post("/whatsapp/send", async (req, res) => {
           error_message:     metaResult.errorMessage,
         })
         .eq("id", message.id)
-        .eq("company_id", companyId)   // tenant guard
+        .eq("company_id", companyId)
         .select()
         .single();
 
@@ -323,7 +520,7 @@ router.post("/whatsapp/send", async (req, res) => {
         finalMessage = updated;
       }
     }
-  } else if (messageType === "text" && !metaConfigured) {
+  } else if (!metaConfigured) {
     console.warn(
       "[whatsapp/send] WHATSAPP_ACCESS_TOKEN or WHATSAPP_PHONE_NUMBER_ID not set — " +
       "message stored as pending but not dispatched to Meta.",
