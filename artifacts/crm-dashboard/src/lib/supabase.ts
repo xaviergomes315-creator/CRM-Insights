@@ -61,6 +61,47 @@ export interface LeadRow {
   last_activity_at: number;
 }
 
+/** public.proposals */
+export type ProposalStatus = 'Draft' | 'Sent' | 'Accepted' | 'Rejected' | 'Expired';
+
+export interface ProposalRow {
+  id:              string;
+  company_id:      string;
+  lead_id:         number | null;
+  proposal_number: string;
+  client_name:     string;
+  client_email:    string;
+  client_phone:    string;
+  status:          ProposalStatus;
+  subtotal:        number;
+  tax:             number;
+  total:           number;
+  notes:           string;
+  validity_date:   string | null;
+  expiry_date:     string | null;
+  metadata:        Record<string, unknown>;
+  created_by:      string;
+  created_at:      string;
+  updated_at:      string;
+}
+
+/** public.proposal_items */
+export interface ProposalItemRow {
+  id:          string;
+  proposal_id: string;
+  service_name: string;
+  description: string;
+  quantity:    number;
+  unit_price:  number;
+  discount:    number;
+  tax_rate:    number;
+  total:       number;
+  sort_order:  number;
+  metadata:    Record<string, unknown>;
+  created_at:  string;
+  updated_at:  string;
+}
+
 /** public.tasks */
 export interface TaskRow {
   id:             number;
