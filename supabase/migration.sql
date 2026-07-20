@@ -34,6 +34,12 @@ CREATE TABLE IF NOT EXISTS public.tasks (
   done           BOOLEAN     NOT NULL DEFAULT FALSE
 );
 
+-- ── Company extended fields ───────────────────────────────────
+-- Added by later migrations; included here so a fresh install
+-- gets a complete schema in one shot.
+ALTER TABLE public.leads ADD COLUMN IF NOT EXISTS company_id UUID;
+ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS company_id UUID;
+
 -- ── Row Level Security — disable for anon key access ─────────
 -- (The app manages auth entirely through mock credentials in
 --  AuthContext, so we disable RLS and allow all operations via
