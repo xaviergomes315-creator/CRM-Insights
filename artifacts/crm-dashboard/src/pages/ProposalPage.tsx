@@ -7,7 +7,7 @@ import jsPDF from 'jspdf';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
-import type { ProposalStatus } from '@/lib/supabase';
+import type { CompanyRow, ProposalStatus } from '@/lib/supabase';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -266,6 +266,7 @@ export default function ProposalPage() {
 
   // ── Server state ───────────────────────────────────────────────────────────
   const [proposals,        setProposals]        = useState<ProposalSummary[]>([]);
+  const [company,          setCompany]          = useState<CompanyRow | null>(null);
   const [loadingList,      setLoadingList]      = useState(true);
   const [saving,           setSaving]           = useState(false);
   const [loadingProposal,  setLoadingProposal]  = useState(false);
@@ -301,6 +302,24 @@ export default function ProposalPage() {
   useEffect(() => {
     if (profile?.company_id) fetchProposals();
   }, [profile?.company_id, fetchProposals]);
+
+  // ── Fetch company branding ─────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (!profile?.company_id) return;
+    supabase
+      .from('companies')
+      .select('id, name, address, email, phone, website, gst_number, logo_url')
+      .eq('id', profile.company_id)
+      .single()
+      .then(({ data, error }) => {
+        if (error) {
+          console.error('[ProposalPage] fetch company error', error);
+        } else {
+          setCompany(data as CompanyRow);
+        }
+      });
+  }, [profile?.company_id]);
 
   // ── Load a saved proposal into the form ───────────────────────────────────
 
@@ -530,13 +549,13 @@ export default function ProposalPage() {
 
   // ── PDF download ───────────────────────────────────────────────────────────
 
-  const handlePrint = () => {
+  const handlePrint = async () => {
     const doc = new jsPDF({ unit: 'mm', format: 'a4' });
 
     const pageW  = 210;
     const pageH  = 297;
     const margin = 14;
-    const cW     = pageW - margin * 2; // content width
+    const cW     = pageW - margin * 2;
 
     // ── Palette ──────────────────────────────────────────────────────────────
     const primary: [number, number, number] = [79,  70, 229];
@@ -548,38 +567,109 @@ export default function ProposalPage() {
     const fmtMoney = (n: number) =>
       'Rs. ' + new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(n);
 
-    let y = 14;
+    // ── Fetch logo as base64 (graceful: skip on any error) ───────────────────
+    let logoDataUrl: string | null = null;
+    let logoFormat: 'JPEG' | 'PNG' = 'JPEG';
+
+    if (company?.logo_url) {
+      try {
+        const res  = await fetch(company.logo_url);
+        const blob = await res.blob();
+        logoFormat = blob.type.includes('png') ? 'PNG' : 'JPEG';
+        logoDataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload  = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+      } catch {
+        logoDataUrl = null; // skip logo silently
+      }
+    }
 
     // ── Header: company (left) + PROPOSAL label (right) ──────────────────────
-    doc.setFontSize(16);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(...primary);
-    doc.text('CRM Pro', margin, y);
+    const logoSize   = 14; // mm, square
+    const textStartX = logoDataUrl ? margin + logoSize + 3 : margin;
+    let y = 14;
 
-    doc.setFontSize(8);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(...muted);
-    doc.text('Business Suite  •  solutions@crmpro.in', margin, y + 5);
-    doc.text('+91 98000 00000  •  www.crmpro.in',      margin, y + 9);
+    if (logoDataUrl) {
+      doc.addImage(logoDataUrl, logoFormat, margin, y - 3, logoSize, logoSize);
+    }
 
-    const rX = pageW - margin;
+    // Company name
+    if (company?.name) {
+      doc.setFontSize(15);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...primary);
+      doc.text(company.name, textStartX, y);
+      y += 5;
+    }
+
+    // Address (may be multi-line)
+    if (company?.address) {
+      doc.setFontSize(7.5);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...muted);
+      const addrLines = doc.splitTextToSize(company.address, 90) as string[];
+      doc.text(addrLines, textStartX, y);
+      y += addrLines.length * 3.8;
+    }
+
+    // Email · Phone on one line; omit whichever is absent
+    const contactParts: string[] = [];
+    if (company?.email)   contactParts.push(company.email);
+    if (company?.phone)   contactParts.push(company.phone);
+    if (contactParts.length > 0) {
+      doc.setFontSize(7.5);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...muted);
+      doc.text(contactParts.join('  •  '), textStartX, y);
+      y += 3.8;
+    }
+
+    // Website
+    if (company?.website) {
+      doc.setFontSize(7.5);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...muted);
+      doc.text(company.website, textStartX, y);
+      y += 3.8;
+    }
+
+    // GST number
+    if (company?.gst_number) {
+      doc.setFontSize(7.5);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...muted);
+      doc.text(`GST: ${company.gst_number}`, textStartX, y);
+      y += 3.8;
+    }
+
+    // Right column: PROPOSAL label + meta
+    const rX     = pageW - margin;
+    const rTopY  = 14;
+
     doc.setFontSize(22);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(...dark);
-    doc.text('PROPOSAL', rX, y, { align: 'right' });
+    doc.text('PROPOSAL', rX, rTopY, { align: 'right' });
 
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(...muted);
+    let rY = rTopY + 6;
     if (savedProposalNum) {
-      doc.text(savedProposalNum, rX, y + 6, { align: 'right' });
+      doc.text(savedProposalNum, rX, rY, { align: 'right' });
+      rY += 5;
     }
-    doc.text(`Date: ${fmtDate(form.proposalDate)}`,         rX, y + 11, { align: 'right' });
+    doc.text(`Date: ${fmtDate(form.proposalDate)}`, rX, rY, { align: 'right' });
     if (form.validUntil) {
-      doc.text(`Valid until: ${fmtDate(form.validUntil)}`,  rX, y + 15, { align: 'right' });
+      rY += 4;
+      doc.text(`Valid until: ${fmtDate(form.validUntil)}`, rX, rY, { align: 'right' });
     }
 
-    y += 22;
+    // Advance y past whichever column (left or right) is taller
+    y = Math.max(y, rY) + 6;
 
     // Primary rule below header
     doc.setDrawColor(...primary);
@@ -608,31 +698,27 @@ export default function ProposalPage() {
     y += 5;
 
     // ── Services table ────────────────────────────────────────────────────────
-    // Column layout: description | qty | rate | amount
-    const cDesc   = cW - 22 - 30 - 30;
-    const colX    = [
+    const cDesc  = cW - 22 - 30 - 30;
+    const colX   = [
       margin,
       margin + cDesc,
       margin + cDesc + 22,
       margin + cDesc + 22 + 30,
     ];
-    const colEnd  = pageW - margin; // right edge for last column
+    const colEnd = pageW - margin;
+    const rowH   = 7.5;
 
-    const rowH = 7.5;
-
-    // Header row
     doc.setFillColor(235, 233, 255);
     doc.rect(margin, y, cW, rowH, 'F');
     doc.setFontSize(7.5);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(...dark);
-    doc.text('SERVICE / DESCRIPTION',   colX[0] + 2,                   y + 5);
-    doc.text('QTY',                     colX[1] + 11,                  y + 5, { align: 'center' });
-    doc.text('RATE',                    colX[2] + 30,                  y + 5, { align: 'right' });
-    doc.text('AMOUNT',                  colEnd,                        y + 5, { align: 'right' });
+    doc.text('SERVICE / DESCRIPTION', colX[0] + 2,  y + 5);
+    doc.text('QTY',                   colX[1] + 11, y + 5, { align: 'center' });
+    doc.text('RATE',                  colX[2] + 30, y + 5, { align: 'right' });
+    doc.text('AMOUNT',                colEnd,        y + 5, { align: 'right' });
     y += rowH;
 
-    // Data rows
     form.services.forEach((svc, i) => {
       if (i % 2 === 1) {
         doc.setFillColor(248, 248, 252);
@@ -646,19 +732,19 @@ export default function ProposalPage() {
       doc.text(svc.service_name || '—', colX[0] + 2, y + 5);
 
       doc.setTextColor(...muted);
-      doc.text(String(svc.qty),         colX[1] + 11, y + 5, { align: 'center' });
-      doc.text(fmtMoney(svc.rate),      colX[2] + 30, y + 5, { align: 'right' });
+      doc.text(String(svc.qty),    colX[1] + 11, y + 5, { align: 'center' });
+      doc.text(fmtMoney(svc.rate), colX[2] + 30, y + 5, { align: 'right' });
 
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(...dark);
-      doc.text(fmtMoney(amount),        colEnd,        y + 5, { align: 'right' });
+      doc.text(fmtMoney(amount), colEnd, y + 5, { align: 'right' });
 
       y += rowH;
     });
 
     y += 5;
 
-    // ── Totals block ─────────────────────────────────────────────────────────
+    // ── Totals ────────────────────────────────────────────────────────────────
     const subtotal = form.services.reduce((s, l) => s + l.qty * l.rate, 0);
     const tax      = Math.round(subtotal * GST_RATE);
     const total    = subtotal + tax;
@@ -674,7 +760,7 @@ export default function ProposalPage() {
     doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(...muted);
-    doc.text('Subtotal',  tLabelX, y);
+    doc.text('Subtotal', tLabelX, y);
     doc.setTextColor(...dark);
     doc.text(fmtMoney(subtotal), tValueX, y, { align: 'right' });
     y += 5.5;
@@ -692,8 +778,8 @@ export default function ProposalPage() {
     doc.setFontSize(11);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(...primary);
-    doc.text('Total',          tLabelX, y);
-    doc.text(fmtMoney(total),  tValueX, y, { align: 'right' });
+    doc.text('Total',         tLabelX, y);
+    doc.text(fmtMoney(total), tValueX, y, { align: 'right' });
     y += 12;
 
     // ── Notes ─────────────────────────────────────────────────────────────────
@@ -723,8 +809,9 @@ export default function ProposalPage() {
     doc.setFontSize(7.5);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(...muted);
-    doc.text('CRM Pro  •  Business Suite',     margin,         pageH - 10);
-    doc.text('Thank you for your business!',   pageW - margin, pageH - 10, { align: 'right' });
+    const footerLeft = company?.name ?? '';
+    if (footerLeft) doc.text(footerLeft, margin, pageH - 10);
+    doc.text('Thank you for your business!', pageW - margin, pageH - 10, { align: 'right' });
 
     // ── Save ──────────────────────────────────────────────────────────────────
     const safeName = (form.clientName || 'Client').replace(/\s+/g, '_');

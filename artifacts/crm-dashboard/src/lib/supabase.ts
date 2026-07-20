@@ -28,6 +28,10 @@ export interface CompanyRow {
   name: string;
   gst_number: string | null;
   address: string | null;
+  email: string | null;
+  phone: string | null;
+  website: string | null;
+  logo_url: string | null;
   created_at: string;  // timestamptz
   // slug, plan, updated_at are not present in the live schema
   slug?: string;
