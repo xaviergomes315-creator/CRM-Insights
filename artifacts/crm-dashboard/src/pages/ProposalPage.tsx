@@ -261,7 +261,11 @@ function ProposalPreview({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ProposalPage() {
-  const { profile } = useAuth();
+  const { profile, isAdmin, isTelecaller } = useAuth();
+  // Managers, company admins, and super admins may send proposals and delete them.
+  // Employees (telecallers) have read-only access to the proposal list.
+  const canSend   = !isTelecaller; // manager | company_admin | super_admin
+  const canDelete = isAdmin;       // company_admin | super_admin
   const printRef = useRef<HTMLDivElement>(null);
 
   // ── Server state ───────────────────────────────────────────────────────────
@@ -1060,17 +1064,19 @@ export default function ProposalPage() {
                               {savedProposalId === p.id ? 'Loaded' : 'Load'}
                             </button>
                           )}
-                          {deletingId === p.id ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-                          ) : (
-                            <button
-                              onClick={() => handleDelete(p.id, p.proposal_number)}
-                              disabled={deletingId !== null}
-                              className="flex items-center justify-center h-6 w-6 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-40"
-                              title="Delete proposal"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
+                          {canDelete && (
+                            deletingId === p.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                            ) : (
+                              <button
+                                onClick={() => handleDelete(p.id, p.proposal_number)}
+                                disabled={deletingId !== null}
+                                className="flex items-center justify-center h-6 w-6 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-40"
+                                title="Delete proposal"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )
                           )}
                         </div>
                       </td>
@@ -1265,23 +1271,25 @@ export default function ProposalPage() {
                   <Download className="h-4 w-4" />
                   Download PDF
                 </button>
-                <button
-                  onClick={handleSendEmail}
-                  disabled={sending || !savedProposalId || !form.clientEmail}
-                  title={
-                    !savedProposalId
-                      ? 'Save the proposal first'
-                      : !form.clientEmail
-                        ? 'No client email on this proposal'
-                        : 'Send PDF to client via email'
-                  }
-                  className="flex items-center gap-2 rounded-xl bg-primary text-primary-foreground font-medium px-4 py-2.5 text-sm hover:bg-primary/90 transition-colors min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {sending
-                    ? <><Loader2 className="h-4 w-4 animate-spin" /> Sending…</>
-                    : <><Mail className="h-4 w-4" /> Send via Email</>
-                  }
-                </button>
+                {canSend && (
+                  <button
+                    onClick={handleSendEmail}
+                    disabled={sending || !savedProposalId || !form.clientEmail}
+                    title={
+                      !savedProposalId
+                        ? 'Save the proposal first'
+                        : !form.clientEmail
+                          ? 'No client email on this proposal'
+                          : 'Send PDF to client via email'
+                    }
+                    className="flex items-center gap-2 rounded-xl bg-primary text-primary-foreground font-medium px-4 py-2.5 text-sm hover:bg-primary/90 transition-colors min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {sending
+                      ? <><Loader2 className="h-4 w-4 animate-spin" /> Sending…</>
+                      : <><Mail className="h-4 w-4" /> Send via Email</>
+                    }
+                  </button>
+                )}
                 <button
                   onClick={handleWhatsApp}
                   className="flex items-center gap-2 rounded-xl bg-[#25D366] text-white font-medium px-4 py-2.5 text-sm hover:bg-[#1ebe5d] transition-colors min-h-[44px]"
