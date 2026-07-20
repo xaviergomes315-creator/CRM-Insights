@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { clsx } from 'clsx';
 import {
-  FileText, Printer, Share2, Plus, Trash2, Save, Loader2, FilePlus,
+  FileText, Download, Share2, Plus, Trash2, Save, Loader2, FilePlus,
 } from 'lucide-react';
+import jsPDF from 'jspdf';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
@@ -527,27 +528,210 @@ export default function ProposalPage() {
     setSaving(false);
   };
 
-  // ── Print ──────────────────────────────────────────────────────────────────
+  // ── PDF download ───────────────────────────────────────────────────────────
 
   const handlePrint = () => {
-    const printContent = document.getElementById('proposal-print');
-    if (!printContent) return;
-    const win = window.open('', '_blank', 'width=900,height=700');
-    if (!win) return;
-    win.document.write(`
-      <html><head><title>Proposal – ${form.clientName}</title>
-      <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: system-ui, sans-serif; padding: 40px; color: #111; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { padding: 8px 12px; }
-        .border-t { border-top: 1px solid #e5e7eb; }
-      </style>
-      </head><body>${printContent.innerHTML}</body></html>
-    `);
-    win.document.close();
-    win.focus();
-    win.print();
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+
+    const pageW  = 210;
+    const pageH  = 297;
+    const margin = 14;
+    const cW     = pageW - margin * 2; // content width
+
+    // ── Palette ──────────────────────────────────────────────────────────────
+    const primary: [number, number, number] = [79,  70, 229];
+    const muted:   [number, number, number] = [107, 114, 128];
+    const dark:    [number, number, number] = [17,  24,  39];
+    const rule:    [number, number, number] = [229, 231, 235];
+
+    // Currency: jsPDF built-in fonts don't carry ₹ — use Rs.
+    const fmtMoney = (n: number) =>
+      'Rs. ' + new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(n);
+
+    let y = 14;
+
+    // ── Header: company (left) + PROPOSAL label (right) ──────────────────────
+    doc.setFontSize(16);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...primary);
+    doc.text('CRM Pro', margin, y);
+
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...muted);
+    doc.text('Business Suite  •  solutions@crmpro.in', margin, y + 5);
+    doc.text('+91 98000 00000  •  www.crmpro.in',      margin, y + 9);
+
+    const rX = pageW - margin;
+    doc.setFontSize(22);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...dark);
+    doc.text('PROPOSAL', rX, y, { align: 'right' });
+
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...muted);
+    if (savedProposalNum) {
+      doc.text(savedProposalNum, rX, y + 6, { align: 'right' });
+    }
+    doc.text(`Date: ${fmtDate(form.proposalDate)}`,         rX, y + 11, { align: 'right' });
+    if (form.validUntil) {
+      doc.text(`Valid until: ${fmtDate(form.validUntil)}`,  rX, y + 15, { align: 'right' });
+    }
+
+    y += 22;
+
+    // Primary rule below header
+    doc.setDrawColor(...primary);
+    doc.setLineWidth(0.6);
+    doc.line(margin, y, pageW - margin, y);
+    y += 9;
+
+    // ── Client details ────────────────────────────────────────────────────────
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...muted);
+    doc.text('PREPARED FOR', margin, y);
+    y += 5;
+
+    doc.setFontSize(13);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...dark);
+    doc.text(form.clientName || '—', margin, y);
+    y += 5;
+
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...muted);
+    if (form.clientEmail) { doc.text(form.clientEmail, margin, y); y += 4.5; }
+    if (form.clientPhone) { doc.text(form.clientPhone, margin, y); y += 4.5; }
+    y += 5;
+
+    // ── Services table ────────────────────────────────────────────────────────
+    // Column layout: description | qty | rate | amount
+    const cDesc   = cW - 22 - 30 - 30;
+    const colX    = [
+      margin,
+      margin + cDesc,
+      margin + cDesc + 22,
+      margin + cDesc + 22 + 30,
+    ];
+    const colEnd  = pageW - margin; // right edge for last column
+
+    const rowH = 7.5;
+
+    // Header row
+    doc.setFillColor(235, 233, 255);
+    doc.rect(margin, y, cW, rowH, 'F');
+    doc.setFontSize(7.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...dark);
+    doc.text('SERVICE / DESCRIPTION',   colX[0] + 2,                   y + 5);
+    doc.text('QTY',                     colX[1] + 11,                  y + 5, { align: 'center' });
+    doc.text('RATE',                    colX[2] + 30,                  y + 5, { align: 'right' });
+    doc.text('AMOUNT',                  colEnd,                        y + 5, { align: 'right' });
+    y += rowH;
+
+    // Data rows
+    form.services.forEach((svc, i) => {
+      if (i % 2 === 1) {
+        doc.setFillColor(248, 248, 252);
+        doc.rect(margin, y, cW, rowH, 'F');
+      }
+      const amount = svc.qty * svc.rate;
+
+      doc.setFontSize(8.5);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...dark);
+      doc.text(svc.service_name || '—', colX[0] + 2, y + 5);
+
+      doc.setTextColor(...muted);
+      doc.text(String(svc.qty),         colX[1] + 11, y + 5, { align: 'center' });
+      doc.text(fmtMoney(svc.rate),      colX[2] + 30, y + 5, { align: 'right' });
+
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...dark);
+      doc.text(fmtMoney(amount),        colEnd,        y + 5, { align: 'right' });
+
+      y += rowH;
+    });
+
+    y += 5;
+
+    // ── Totals block ─────────────────────────────────────────────────────────
+    const subtotal = form.services.reduce((s, l) => s + l.qty * l.rate, 0);
+    const tax      = Math.round(subtotal * GST_RATE);
+    const total    = subtotal + tax;
+
+    const tLabelX = pageW - margin - 58;
+    const tValueX = pageW - margin;
+
+    doc.setDrawColor(...rule);
+    doc.setLineWidth(0.3);
+    doc.line(tLabelX, y, tValueX, y);
+    y += 5;
+
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...muted);
+    doc.text('Subtotal',  tLabelX, y);
+    doc.setTextColor(...dark);
+    doc.text(fmtMoney(subtotal), tValueX, y, { align: 'right' });
+    y += 5.5;
+
+    doc.setTextColor(...muted);
+    doc.text('GST (18%)', tLabelX, y);
+    doc.setTextColor(...dark);
+    doc.text(fmtMoney(tax), tValueX, y, { align: 'right' });
+    y += 3;
+
+    doc.setDrawColor(...rule);
+    doc.line(tLabelX, y, tValueX, y);
+    y += 5.5;
+
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...primary);
+    doc.text('Total',          tLabelX, y);
+    doc.text(fmtMoney(total),  tValueX, y, { align: 'right' });
+    y += 12;
+
+    // ── Notes ─────────────────────────────────────────────────────────────────
+    if (form.notes.trim()) {
+      doc.setDrawColor(...rule);
+      doc.setLineWidth(0.3);
+      doc.line(margin, y, pageW - margin, y);
+      y += 6;
+
+      doc.setFontSize(7);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...muted);
+      doc.text('NOTES', margin, y);
+      y += 4.5;
+
+      doc.setFontSize(8.5);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...dark);
+      const noteLines = doc.splitTextToSize(form.notes, cW);
+      doc.text(noteLines, margin, y);
+    }
+
+    // ── Footer ────────────────────────────────────────────────────────────────
+    doc.setDrawColor(...rule);
+    doc.setLineWidth(0.3);
+    doc.line(margin, pageH - 15, pageW - margin, pageH - 15);
+    doc.setFontSize(7.5);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...muted);
+    doc.text('CRM Pro  •  Business Suite',     margin,         pageH - 10);
+    doc.text('Thank you for your business!',   pageW - margin, pageH - 10, { align: 'right' });
+
+    // ── Save ──────────────────────────────────────────────────────────────────
+    const safeName = (form.clientName || 'Client').replace(/\s+/g, '_');
+    const filename = savedProposalNum
+      ? `Proposal-${savedProposalNum}-${safeName}.pdf`
+      : `Proposal-${safeName}.pdf`;
+    doc.save(filename);
   };
 
   // ── WhatsApp share ─────────────────────────────────────────────────────────
@@ -926,8 +1110,8 @@ export default function ProposalPage() {
                   onClick={handlePrint}
                   className="flex items-center gap-2 rounded-xl border border-border bg-card text-foreground font-medium px-4 py-2.5 text-sm hover:bg-muted transition-colors min-h-[44px]"
                 >
-                  <Printer className="h-4 w-4" />
-                  Print / Save PDF
+                  <Download className="h-4 w-4" />
+                  Download PDF
                 </button>
                 <button
                   onClick={handleWhatsApp}
