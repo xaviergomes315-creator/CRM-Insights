@@ -9,7 +9,7 @@
  * Auth: Bearer <supabase-access-token>
  */
 import { Router } from "express";
-import { ReplitConnectors } from "@replit/connectors-sdk";
+import nodemailer from "nodemailer";
 import { supabase } from "../lib/supabase.js";
 
 const router = Router();
@@ -95,14 +95,28 @@ router.post("/proposals/send-email", async (req, res) => {
     .single();
 
   const companyName = (company?.name as string | null) ?? "CRM Pro";
+  // SMTP_FROM is optional — falls back to SMTP_USER (the sending account)
   const fromEmail =
-    (process.env["RESEND_FROM_EMAIL"] ?? "").trim() ||
-    "onboarding@resend.dev";
+    (process.env["SMTP_FROM"] ?? "").trim() ||
+    (process.env["SMTP_USER"] ?? "").trim();
 
   const proposalNumber = proposal.proposal_number as string;
   const clientName     = (proposal.client_name as string) || "there";
 
-  // ── 6. Send email via Resend ─────────────────────────────────────────────────
+  // ── 6. Send email via SMTP (nodemailer) ──────────────────────────────────────
+  const smtpHost = process.env["SMTP_HOST"]?.trim();
+  const smtpPort = parseInt(process.env["SMTP_PORT"] ?? "587", 10);
+  const smtpUser = process.env["SMTP_USER"]?.trim();
+  const smtpPass = process.env["SMTP_PASS"]?.trim();
+
+  if (!smtpHost || !smtpUser || !smtpPass) {
+    res.status(503).json({
+      error:
+        "Email is not configured. Set SMTP_HOST, SMTP_USER, SMTP_PASS, and SMTP_PORT (optional, default 587) in your environment secrets.",
+    });
+    return;
+  }
+
   const emailHtml = `
     <div style="font-family:system-ui,sans-serif;max-width:560px;margin:0 auto;color:#111827">
       <h2 style="color:#4F46E5;margin-bottom:4px">${companyName}</h2>
@@ -121,29 +135,26 @@ router.post("/proposals/send-email", async (req, res) => {
   let emailError: string | null = null;
 
   try {
-    // Never cache — tokens expire
-    const connectors = new ReplitConnectors();
-    const emailRes = await connectors.proxy("resend", "/emails", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        from: fromEmail,
-        to:   [clientEmail],
-        subject: `Proposal ${proposalNumber} from ${companyName}`,
-        html: emailHtml,
-        attachments: [
-          {
-            filename: `Proposal-${proposalNumber}.pdf`,
-            content:  pdfBase64,
-          },
-        ],
-      }),
+    const transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpPort === 465,
+      auth: { user: smtpUser, pass: smtpPass },
     });
 
-    if (!emailRes.ok) {
-      const body = await emailRes.text().catch(() => emailRes.statusText);
-      emailError = `Resend error ${emailRes.status}: ${body}`;
-    }
+    await transporter.sendMail({
+      from:    fromEmail,
+      to:      clientEmail,
+      subject: `Proposal ${proposalNumber} from ${companyName}`,
+      html:    emailHtml,
+      attachments: [
+        {
+          filename:    `Proposal-${proposalNumber}.pdf`,
+          content:     Buffer.from(pdfBase64, "base64"),
+          contentType: "application/pdf",
+        },
+      ],
+    });
   } catch (err) {
     emailError = err instanceof Error ? err.message : String(err);
   }
