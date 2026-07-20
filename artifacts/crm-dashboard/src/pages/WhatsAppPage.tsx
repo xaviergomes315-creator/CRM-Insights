@@ -8,7 +8,7 @@
  *
  * Mobile: single-pane with back navigation (conversation list → chat).
  */
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { MessageSquare } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
@@ -19,12 +19,14 @@ import {
 } from '@/lib/whatsapp-api';
 import ConversationList from '@/components/whatsapp/ConversationList';
 import ChatWindow from '@/components/whatsapp/ChatWindow';
+import { useConversationsRealtime } from '@/hooks/useWhatsAppRealtime';
 
 const CONV_LIMIT = 30;
 
 export default function WhatsAppPage() {
-  const { session } = useAuth();
-  const token       = session?.access_token ?? '';
+  const { session, profile } = useAuth();
+  const token                = session?.access_token ?? '';
+  const companyId            = profile?.company_id ?? null;
   const qc          = useQueryClient();
 
   const [selectedConv, setSelectedConv] = useState<WaConversation | null>(null);
@@ -52,7 +54,7 @@ export default function WhatsAppPage() {
     },
     enabled:   !!token,
     staleTime: 30_000,
-    refetchInterval: 60_000,   // poll every 60 s (webhook will handle real-time in future)
+    // No polling — Supabase Realtime keeps the list live via useConversationsRealtime
   });
 
   const allConversations: WaConversation[] = data?.pages.flatMap(p => p.conversations) ?? [];
