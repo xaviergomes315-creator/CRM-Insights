@@ -1,25 +1,26 @@
 /**
  * Module Registry Service (backend)
  *
- * Exposes getAvailableModules(companyId) which combines:
- *   1. MODULE_REGISTRY      — central definition of every CRM module
- *   2. business_configuration — per-company enabled_modules + business_type
+ * getAvailableModules(companyId, options?)
+ *   Returns every module annotated with per-company is_enabled / is_supported.
  *
- * Returns a typed AvailableModule[] with is_enabled and is_supported flags
- * set for the given company.
+ * getVisibleModules(companyId, role?)
+ *   Returns only modules that are production_ready, not hidden, and enabled
+ *   for the given company — the default navigation surface.
  *
- * NOTE: This service is intentionally unused in routes for now.
- *       It is the foundation for future server-side module gating.
+ * Both functions use the Supabase service-role client (bypasses RLS) and
+ * are intentionally unused in routes for now.
  */
 
 import {
   MODULE_REGISTRY,
+  MODULE_REGISTRY_MAP,
+  MODULE_CATEGORY_LABELS,
   isModuleSupported,
+  isVisibleAndReady,
   getModulesByCategory,
   getModuleDefinition,
   hasPermission,
-  MODULE_CATEGORY_LABELS,
-  MODULE_REGISTRY_MAP,
   type ModuleDefinition,
   type AvailableModule,
   type ModuleCategory,
@@ -33,84 +34,59 @@ import {
 
 import type { BusinessType } from "@workspace/db";
 
-// Re-export everything consumers might need from a single import path.
+// Re-export so consumers have one import path.
 export type { ModuleDefinition, AvailableModule, ModuleCategory, UserRole };
 export {
   MODULE_REGISTRY,
   MODULE_REGISTRY_MAP,
   MODULE_CATEGORY_LABELS,
   isModuleSupported,
+  isVisibleAndReady,
   getModulesByCategory,
   getModuleDefinition,
   hasPermission,
+  BusinessConfigurationError,
 };
-export { BusinessConfigurationError };
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ─── Option types ─────────────────────────────────────────────────────────────
 
 export interface GetAvailableModulesOptions {
   /**
-   * When provided, only modules whose required_permissions includes this role
-   * are returned.  Omit to return all modules regardless of role.
+   * When set, only modules whose required_permissions includes this role
+   * are returned.
    */
   role?: UserRole;
 
-  /**
-   * When true, modules where is_enabled = false are excluded from the result.
-   * Default: false (return all modules with the flag set).
-   */
+  /** Exclude modules where is_enabled = false. Default: false. */
   enabledOnly?: boolean;
 
-  /**
-   * When true, modules where is_supported = false are excluded from the result.
-   * Default: false (return all modules with the flag set).
-   */
+  /** Exclude modules where is_supported = false. Default: false. */
   supportedOnly?: boolean;
+
+  /** Exclude modules where production_ready = false. Default: false. */
+  productionReadyOnly?: boolean;
+
+  /** Exclude modules where hidden = true. Default: false. */
+  visibleOnly?: boolean;
 }
 
 export interface AvailableModulesResult {
-  /** Company's current business type. */
+  /** Company's current business type (from business_configuration). */
   business_type: BusinessType;
 
-  /** Full list of modules (filtered by options). */
+  /** Filtered, sorted list of modules. */
   modules: AvailableModule[];
 
-  /**
-   * Modules grouped by category, in the order defined by MODULE_CATEGORIES.
-   * Each group only contains modules that passed the filter options.
-   */
-  by_category: Record<ModuleCategory, AvailableModule[]>;
+  /** Same list grouped by category; each group is sorted by sort_order. */
+  by_category: Partial<Record<ModuleCategory, AvailableModule[]>>;
 }
 
-// ─── getAvailableModules ──────────────────────────────────────────────────────
+// ─── Shared config fetcher ────────────────────────────────────────────────────
 
-/**
- * Returns the full set of modules available to a company, annotated with
- * per-company is_enabled and is_supported flags.
- *
- * The function is intentionally non-throwing for missing configuration rows:
- * when no business_configuration exists it falls back to the module's
- * default_enabled value and treats every module as supported, so existing
- * companies never have features silently removed.
- *
- * @param companyId  UUID of the company.
- * @param options    Optional filters (role, enabledOnly, supportedOnly).
- * @returns          AvailableModulesResult containing the module list and a
- *                   by_category map.
- *
- * @example
- * const { modules, by_category, business_type } = await getAvailableModules(
- *   company.id,
- *   { role: 'employee', enabledOnly: true },
- * );
- */
-export async function getAvailableModules(
-  companyId: string,
-  options: GetAvailableModulesOptions = {},
-): Promise<AvailableModulesResult> {
-  const { role, enabledOnly = false, supportedOnly = false } = options;
-
-  // ── 1. Fetch business configuration (fail-open) ───────────────────────────
+async function fetchConfig(companyId: string): Promise<{
+  businessType: BusinessType;
+  enabledModulesMap: Record<string, boolean>;
+}> {
   let businessType: BusinessType = "agency";
   let enabledModulesMap: Record<string, boolean> = {};
 
@@ -122,60 +98,138 @@ export async function getAvailableModules(
         (config.enabled_modules as Record<string, boolean>) ?? {};
     }
   } catch (err) {
-    // Log the error but do not fail — return defaults so the app stays usable.
     console.warn(
-      `[module-registry] Failed to load business_configuration for company ${companyId}; ` +
-        "falling back to module defaults.",
+      `[module-registry] Could not load business_configuration for company ` +
+        `${companyId}; falling back to registry defaults.`,
       err,
     );
   }
 
-  // ── 2. Annotate every module in the registry ──────────────────────────────
-  const annotated: AvailableModule[] = MODULE_REGISTRY.map(
-    (def): AvailableModule => {
-      // Enabled: use the config value when present, fall back to default.
-      const configValue = enabledModulesMap[def.module_key];
-      const is_enabled =
-        typeof configValue === "boolean" ? configValue : def.default_enabled;
+  return { businessType, enabledModulesMap };
+}
 
-      // Supported: check whether the company's business_type is listed.
-      const is_supported = isModuleSupported(def, businessType);
+// ─── Annotator ────────────────────────────────────────────────────────────────
 
-      return { ...def, is_enabled, is_supported };
-    },
-  );
+function annotate(
+  businessType: BusinessType,
+  enabledModulesMap: Record<string, boolean>,
+): AvailableModule[] {
+  return MODULE_REGISTRY.map((def): AvailableModule => {
+    // Per-company enabled state: config value takes precedence, then registry default.
+    const configValue = enabledModulesMap[def.module_key];
+    const is_enabled =
+      typeof configValue === "boolean" ? configValue : def.enabled;
 
-  // ── 3. Apply filters ──────────────────────────────────────────────────────
-  let filtered = annotated;
+    const is_supported = isModuleSupported(def, businessType);
 
-  if (role !== undefined) {
-    filtered = filtered.filter((m) => hasPermission(m, role));
+    return { ...def, is_enabled, is_supported };
+  });
+}
+
+// ─── Filter & group ───────────────────────────────────────────────────────────
+
+function applyFilters(
+  modules: AvailableModule[],
+  options: GetAvailableModulesOptions,
+): AvailableModule[] {
+  const {
+    role,
+    enabledOnly = false,
+    supportedOnly = false,
+    productionReadyOnly = false,
+    visibleOnly = false,
+  } = options;
+
+  return modules.filter((m) => {
+    if (role !== undefined && !hasPermission(m, role))  return false;
+    if (enabledOnly && !m.is_enabled)                    return false;
+    if (supportedOnly && !m.is_supported)                return false;
+    if (productionReadyOnly && !m.production_ready)      return false;
+    if (visibleOnly && m.hidden)                         return false;
+    return true;
+  });
+}
+
+function groupByCategory(
+  modules: AvailableModule[],
+): Partial<Record<ModuleCategory, AvailableModule[]>> {
+  const map: Partial<Record<ModuleCategory, AvailableModule[]>> = {};
+  for (const m of modules) {
+    if (!map[m.category]) map[m.category] = [];
+    map[m.category]!.push(m);
   }
-  if (enabledOnly) {
-    filtered = filtered.filter((m) => m.is_enabled);
+  for (const group of Object.values(map)) {
+    group!.sort((a, b) => a.sort_order - b.sort_order);
   }
-  if (supportedOnly) {
-    filtered = filtered.filter((m) => m.is_supported);
-  }
+  return map;
+}
 
-  // ── 4. Group by category ──────────────────────────────────────────────────
-  const by_category = filtered.reduce<Record<string, AvailableModule[]>>(
-    (acc, module) => {
-      if (!acc[module.category]) acc[module.category] = [];
-      acc[module.category]!.push(module);
-      return acc;
-    },
-    {},
-  ) as Record<ModuleCategory, AvailableModule[]>;
+// ─── getAvailableModules ──────────────────────────────────────────────────────
 
-  // Sort each group by sort_order.
-  for (const group of Object.values(by_category)) {
-    group.sort((a, b) => a.sort_order - b.sort_order);
-  }
+/**
+ * Returns every module in the registry annotated with per-company
+ * is_enabled and is_supported flags.
+ *
+ * Fail-open: when no business_configuration row exists the function falls
+ * back to each module's registry `enabled` flag so existing companies never
+ * lose access to a feature on first deploy.
+ *
+ * @param companyId  UUID of the company.
+ * @param options    Optional filters.
+ *
+ * @example
+ * const { modules } = await getAvailableModules(companyId, {
+ *   role: 'manager',
+ *   enabledOnly: true,
+ * });
+ */
+export async function getAvailableModules(
+  companyId: string,
+  options: GetAvailableModulesOptions = {},
+): Promise<AvailableModulesResult> {
+  const { businessType, enabledModulesMap } = await fetchConfig(companyId);
+
+  const annotated = annotate(businessType, enabledModulesMap);
+  const filtered  = applyFilters(annotated, options);
+  const sorted    = filtered.sort((a, b) => a.sort_order - b.sort_order);
 
   return {
     business_type: businessType,
-    modules: filtered.sort((a, b) => a.sort_order - b.sort_order),
-    by_category,
+    modules:       sorted,
+    by_category:   groupByCategory(sorted),
   };
+}
+
+// ─── getVisibleModules ────────────────────────────────────────────────────────
+
+/**
+ * Returns only the modules that should appear in the default navigation
+ * surface — i.e. modules that are ALL of:
+ *   • production_ready = true   (stable, not experimental)
+ *   • hidden = false            (not explicitly suppressed)
+ *   • is_enabled = true         (on for this company per business_configuration)
+ *
+ * Optionally filtered by `role` so employee-restricted modules are excluded
+ * when rendering employee-facing navigation.
+ *
+ * Fail-open: if business_configuration cannot be loaded, every module that
+ * passes the production_ready + hidden gate is included.
+ *
+ * @param companyId  UUID of the company.
+ * @param role       Optional role for permission filtering.
+ *
+ * @example
+ * const { modules, by_category } = await getVisibleModules(companyId, 'employee');
+ * // Use modules to render the sidebar nav items.
+ */
+export async function getVisibleModules(
+  companyId: string,
+  role?: UserRole,
+): Promise<AvailableModulesResult> {
+  return getAvailableModules(companyId, {
+    role,
+    enabledOnly:         true,
+    productionReadyOnly: true,
+    visibleOnly:         true,
+  });
 }

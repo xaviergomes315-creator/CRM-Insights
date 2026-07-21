@@ -2,20 +2,20 @@
  * Central Module Registry
  *
  * Single source of truth for every CRM module: its key, display name,
- * category, icon, required role permissions, and which business types
- * support it.
+ * category, icon, required role permissions, supported business types,
+ * and the five lifecycle flags (installed / enabled / beta /
+ * production_ready / hidden).
  *
- * This file has NO runtime dependencies on Supabase, React, or any external
- * package, so it can be imported by both the backend (api-server) and
- * any future shared tooling without pulling in browser or Node-specific code.
+ * No runtime dependencies on Supabase, React, or any external package —
+ * safe to import from both the backend (api-server) and any future tooling.
  *
- * Icon names are lucide-react PascalCase strings.  The frontend maps them to
- * actual React components; the backend can use them as string identifiers.
+ * Icon names are lucide-react PascalCase strings. The frontend maps them
+ * to actual React components; the backend treats them as opaque strings.
  */
 
 import type { BusinessType } from "./companies";
 
-// ─── Role type (duplicated here to avoid pulling in Supabase) ─────────────────
+// ─── Role type ────────────────────────────────────────────────────────────────
 
 export type UserRole =
   | "super_admin"
@@ -36,7 +36,6 @@ export const MODULE_CATEGORIES = [
 
 export type ModuleCategory = (typeof MODULE_CATEGORIES)[number];
 
-/** Human-readable labels for sidebar section headings. */
 export const MODULE_CATEGORY_LABELS: Record<ModuleCategory, string> = {
   core:           "Core",
   communication:  "Communication",
@@ -49,75 +48,108 @@ export const MODULE_CATEGORY_LABELS: Record<ModuleCategory, string> = {
 // ─── Module definition ────────────────────────────────────────────────────────
 
 export interface ModuleDefinition {
-  /** Stable identifier that matches the key used in EnabledModules / MODULE_SLUGS. */
+  /** Stable identifier — matches the key in EnabledModules / MODULE_SLUGS. */
   module_key: string;
 
-  /** Human-readable name shown in the sidebar and UI. */
+  /** Human-readable name shown in the sidebar and admin UI. */
   display_name: string;
 
-  /** Grouping category (maps to a sidebar section heading). */
+  /** Grouping category (drives sidebar section headings). */
   category: ModuleCategory;
 
   /**
    * lucide-react icon name in PascalCase.
-   * The frontend resolves this to an actual React component; the backend
-   * treats it as an opaque string.
+   * Frontend resolves this to a React component; backend uses it as a string.
    */
   icon: string;
 
   /** One-sentence description of the module's purpose. */
   description: string;
 
-  /**
-   * The minimum set of roles that may access this module.
-   * If a user's role is NOT in this list the module is inaccessible
-   * regardless of the enabled_modules flag.
-   */
+  /** Minimum roles that may access this module. */
   required_permissions: UserRole[];
 
   /**
-   * Which business types natively support this module.
-   * - 'all'          → every business type, including future ones.
-   * - BusinessType[] → explicit allowlist; modules not listed are flagged
-   *                    is_supported = false but still returned by
-   *                    getAvailableModules so the caller can decide how
-   *                    to present them.
+   * Business types that natively support this module.
+   * 'all' → every type including future ones.
+   * BusinessType[] → explicit allowlist.
    */
   supported_business_types: BusinessType[] | "all";
 
-  /**
-   * Fallback enabled state when no business_configuration row exists
-   * (fail-open so existing companies never lose access on first deploy).
-   */
-  default_enabled: boolean;
+  // ── Lifecycle flags ────────────────────────────────────────────────────────
 
-  /** Primary route path for this module (matches App.tsx). */
+  /**
+   * installed
+   * The module's route and page component exist in the codebase.
+   * false = the module is planned but not yet built; its nav_href has no
+   * matching Route in App.tsx. Such modules must also be hidden = true.
+   */
+  installed: boolean;
+
+  /**
+   * enabled
+   * Platform-level default enabled state.  Used as the fallback value for
+   * getAvailableModules() when no business_configuration row exists.
+   * The per-company override lives in business_configuration.enabled_modules.
+   */
+  enabled: boolean;
+
+  /**
+   * beta
+   * The module is available but still under active development. Its UX,
+   * APIs, or data model may change without notice. Beta modules may be
+   * shown to users but should carry a visual "Beta" badge.
+   */
+  beta: boolean;
+
+  /**
+   * production_ready
+   * The module is stable, tested, and safe to expose to all users without
+   * caveats. getVisibleModules() filters to production_ready = true, so
+   * setting this to false removes the module from the default navigation
+   * surface even when it is installed and enabled.
+   */
+  production_ready: boolean;
+
+  /**
+   * hidden
+   * Exclude the module from navigation and any auto-generated module lists
+   * regardless of other flags. Use for modules that are not yet installed,
+   * deprecated, or only accessible via direct URL.
+   */
+  hidden: boolean;
+
+  // ── Navigation ────────────────────────────────────────────────────────────
+
+  /** Primary route path for this module (must match App.tsx). */
   nav_href: string;
 
-  /** Secondary routes that belong to this module (e.g. sub-pages). */
+  /** Additional routes that belong to this module (sub-pages, detail views). */
   secondary_hrefs?: string[];
 
   /**
-   * Rendering order inside its category group.
+   * Rendering order within its category group.
    * Lower numbers appear first.
    */
   sort_order: number;
 }
 
 /**
- * A ModuleDefinition enriched with live per-company flags returned by
- * getAvailableModules().
+ * ModuleDefinition enriched with live per-company flags from
+ * getAvailableModules() / getVisibleModules().
  */
 export interface AvailableModule extends ModuleDefinition {
   /**
-   * true  → business_configuration.enabled_modules[module_key] is true
-   *         (or default_enabled when no config row exists).
+   * is_enabled
+   * true  → business_configuration.enabled_modules[module_key] is true,
+   *         or the registry's `enabled` flag when no config row exists.
    * false → explicitly disabled for this company.
    */
   is_enabled: boolean;
 
   /**
-   * true  → the company's business_type is in supported_business_types
+   * is_supported
+   * true  → the company's business_type appears in supported_business_types
    *         (or supported_business_types === 'all').
    * false → the module exists but is not a natural fit for this business type.
    */
@@ -129,11 +161,16 @@ export interface AvailableModule extends ModuleDefinition {
 /**
  * MODULE_REGISTRY
  *
- * Ordered list of every module in the application.
  * Add a new entry here when a new module/page is introduced.
- * Do NOT remove entries — mark unsupported types instead.
+ * Do NOT remove entries — set installed = false and hidden = true instead.
+ *
+ * Lifecycle flag rules:
+ *   • installed = false  →  hidden must also be true
+ *   • beta = true        →  production_ready may be true or false
+ *   • production_ready = false  →  excluded from getVisibleModules()
  */
 export const MODULE_REGISTRY: ModuleDefinition[] = [
+
   // ── Core ──────────────────────────────────────────────────────────────────
 
   {
@@ -144,7 +181,11 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     description:              "Manage and track all inbound and outbound leads.",
     required_permissions:     ["super_admin", "company_admin", "manager", "employee"],
     supported_business_types: "all",
-    default_enabled:          true,
+    installed:                true,
+    enabled:                  true,
+    beta:                     false,
+    production_ready:         true,
+    hidden:                   false,
     nav_href:                 "/leads",
     sort_order:               10,
   },
@@ -159,7 +200,11 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     supported_business_types: [
       "agency", "gym", "clinic", "real_estate", "manufacturing", "education", "finance",
     ],
-    default_enabled:          true,
+    installed:                true,
+    enabled:                  true,
+    beta:                     false,
+    production_ready:         true,
+    hidden:                   false,
     nav_href:                 "/pipeline",
     sort_order:               20,
   },
@@ -172,7 +217,11 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     description:              "Create and track follow-up tasks tied to leads.",
     required_permissions:     ["super_admin", "company_admin", "manager", "employee"],
     supported_business_types: "all",
-    default_enabled:          true,
+    installed:                true,
+    enabled:                  true,
+    beta:                     false,
+    production_ready:         true,
+    hidden:                   false,
     nav_href:                 "/tasks",
     sort_order:               30,
   },
@@ -187,7 +236,11 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     description:              "Log and manage outbound calls and telecaller activity.",
     required_permissions:     ["super_admin", "company_admin", "manager", "employee"],
     supported_business_types: "all",
-    default_enabled:          true,
+    installed:                true,
+    enabled:                  true,
+    beta:                     false,
+    production_ready:         true,
+    hidden:                   false,
     nav_href:                 "/telecaller",
     secondary_hrefs:          ["/call-log"],
     sort_order:               40,
@@ -204,7 +257,11 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
       "agency", "restaurant", "gym", "clinic", "retail", "real_estate",
       "hospitality", "education", "finance", "other",
     ],
-    default_enabled:          true,
+    installed:                true,
+    enabled:                  true,
+    beta:                     false,
+    production_ready:         true,
+    hidden:                   false,
     nav_href:                 "/whatsapp",
     secondary_hrefs:          ["/whatsapp/campaigns"],
     sort_order:               50,
@@ -220,7 +277,12 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     supported_business_types: [
       "agency", "restaurant", "gym", "retail", "real_estate", "hospitality",
     ],
-    default_enabled:          true,
+    // Page exists but feature set is early-stage; excluded from getVisibleModules.
+    installed:                true,
+    enabled:                  true,
+    beta:                     true,
+    production_ready:         false,
+    hidden:                   false,
     nav_href:                 "/social-media",
     sort_order:               60,
   },
@@ -237,7 +299,11 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     supported_business_types: [
       "agency", "manufacturing", "real_estate", "education", "finance",
     ],
-    default_enabled:          true,
+    installed:                true,
+    enabled:                  true,
+    beta:                     false,
+    production_ready:         true,
+    hidden:                   false,
     nav_href:                 "/proposals",
     sort_order:               70,
   },
@@ -250,7 +316,11 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     description:              "Generate and manage client invoices.",
     required_permissions:     ["super_admin", "company_admin", "manager"],
     supported_business_types: "all",
-    default_enabled:          true,
+    installed:                true,
+    enabled:                  true,
+    beta:                     false,
+    production_ready:         true,
+    hidden:                   false,
     nav_href:                 "/invoices",
     sort_order:               80,
   },
@@ -268,7 +338,11 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
       "agency", "restaurant", "gym", "clinic", "manufacturing",
       "education", "hospitality", "finance", "retail",
     ],
-    default_enabled:          true,
+    installed:                true,
+    enabled:                  true,
+    beta:                     false,
+    production_ready:         true,
+    hidden:                   false,
     nav_href:                 "/hr",
     sort_order:               90,
   },
@@ -281,7 +355,11 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     description:              "Track website and digital project delivery.",
     required_permissions:     ["super_admin", "company_admin", "manager", "employee"],
     supported_business_types: ["agency", "education"],
-    default_enabled:          true,
+    installed:                true,
+    enabled:                  true,
+    beta:                     false,
+    production_ready:         true,
+    hidden:                   false,
     nav_href:                 "/website-projects",
     secondary_hrefs:          ["/website-projects/:id"],
     sort_order:               100,
@@ -297,7 +375,12 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     supported_business_types: [
       "agency", "clinic", "manufacturing", "real_estate", "education", "finance",
     ],
-    default_enabled:          false,
+    // No page built yet — must stay hidden until installed.
+    installed:                false,
+    enabled:                  false,
+    beta:                     false,
+    production_ready:         false,
+    hidden:                   true,
     nav_href:                 "/documents",
     sort_order:               110,
   },
@@ -314,7 +397,11 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     supported_business_types: [
       "agency", "gym", "clinic", "real_estate", "education", "finance",
     ],
-    default_enabled:          true,
+    installed:                true,
+    enabled:                  true,
+    beta:                     false,
+    production_ready:         true,
+    hidden:                   false,
     nav_href:                 "/client-portal",
     sort_order:               120,
   },
@@ -330,7 +417,12 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
       "agency", "restaurant", "gym", "clinic", "manufacturing", "retail",
       "education", "hospitality", "finance", "other",
     ],
-    default_enabled:          false,
+    // No page built yet — must stay hidden until installed.
+    installed:                false,
+    enabled:                  false,
+    beta:                     false,
+    production_ready:         false,
+    hidden:                   true,
     nav_href:                 "/support-tickets",
     sort_order:               130,
   },
@@ -345,7 +437,11 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     description:              "View revenue, pipeline, and performance dashboards.",
     required_permissions:     ["super_admin", "company_admin", "manager"],
     supported_business_types: "all",
-    default_enabled:          true,
+    installed:                true,
+    enabled:                  true,
+    beta:                     false,
+    production_ready:         true,
+    hidden:                   false,
     nav_href:                 "/analytics",
     sort_order:               140,
   },
@@ -357,42 +453,38 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
 export const MODULE_REGISTRY_MAP: Readonly<Record<string, ModuleDefinition>> =
   Object.fromEntries(MODULE_REGISTRY.map((m) => [m.module_key, m]));
 
-/**
- * Returns the ModuleDefinition for a given key, or undefined if not found.
- * Prefer this over directly indexing MODULE_REGISTRY_MAP for typed access.
- */
-export function getModuleDefinition(
-  moduleKey: string,
-): ModuleDefinition | undefined {
-  return MODULE_REGISTRY_MAP[moduleKey];
+/** Returns the ModuleDefinition for a given key, or undefined if not found. */
+export function getModuleDefinition(key: string): ModuleDefinition | undefined {
+  return MODULE_REGISTRY_MAP[key];
 }
 
-/**
- * Returns all modules that belong to the given category, sorted by sort_order.
- */
-export function getModulesByCategory(category: ModuleCategory): ModuleDefinition[] {
-  return MODULE_REGISTRY.filter((m) => m.category === category).sort(
-    (a, b) => a.sort_order - b.sort_order,
-  );
+/** Returns all modules in the given category, sorted by sort_order. */
+export function getModulesByCategory(cat: ModuleCategory): ModuleDefinition[] {
+  return MODULE_REGISTRY.filter((m) => m.category === cat)
+    .sort((a, b) => a.sort_order - b.sort_order);
 }
 
-/**
- * Returns true when `role` satisfies the module's required_permissions list.
- */
-export function hasPermission(
-  module: ModuleDefinition,
-  role: UserRole,
-): boolean {
-  return module.required_permissions.includes(role);
+/** Returns true when `role` satisfies the module's required_permissions. */
+export function hasPermission(m: ModuleDefinition, role: UserRole): boolean {
+  return m.required_permissions.includes(role);
 }
 
-/**
- * Returns true when `businessType` is in the module's supported_business_types.
- */
+/** Returns true when `businessType` is in the module's supported_business_types. */
 export function isModuleSupported(
-  module: ModuleDefinition,
+  m: ModuleDefinition,
   businessType: BusinessType,
 ): boolean {
-  if (module.supported_business_types === "all") return true;
-  return (module.supported_business_types as BusinessType[]).includes(businessType);
+  if (m.supported_business_types === "all") return true;
+  return (m.supported_business_types as BusinessType[]).includes(businessType);
+}
+
+/**
+ * Returns true when the module passes the visibility gate:
+ *   production_ready = true AND hidden = false
+ *
+ * Used internally by getVisibleModules(); exposed here so callers can apply
+ * the same predicate to a pre-fetched list without a second async call.
+ */
+export function isVisibleAndReady(m: ModuleDefinition): boolean {
+  return m.production_ready && !m.hidden;
 }
