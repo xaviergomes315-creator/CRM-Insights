@@ -3,45 +3,51 @@ import { Outlet, Link, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   LayoutDashboard,
-  Users,
-  CheckSquare,
-  PieChart,
+  UserCog,
   Settings,
   LogOut,
   Menu,
   X,
   Bell,
-  Briefcase,
-  UserCog,
-  Globe,
-  Kanban,
-  Phone,
-  PhoneCall,
-  FileText,
-  MessageCircle,
-  Share2,
-  Building2,
   ShieldCheck,
-  Receipt,
   Zap,
-  Megaphone,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  useVisibleModules,
+  type SidebarNavItem,
+} from "@/hooks/useVisibleModules";
 
-// ─── Nav item type ────────────────────────────────────────────────────────────
+// ─── Static admin-utility items ───────────────────────────────────────────────
+// These are not CRM modules in the registry; they are always shown to admins
+// regardless of business type or module configuration.
 
-interface NavItem {
-  name: string;
-  href: string;
-  icon: React.ElementType;
-  /** Use prefix-matching instead of exact matching (e.g. /website-projects/:id) */
-  matchPrefix?: boolean;
-}
+const ADMIN_UTILITY_ITEMS: SidebarNavItem[] = [
+  { key: "admin",        label: "Admin Panel",  href: "/admin",        icon: ShieldCheck },
+  { key: "integrations", label: "Integrations", href: "/integrations", icon: Zap         },
+  { key: "users",        label: "Users",        href: "/users",        icon: UserCog     },
+  { key: "settings",     label: "Settings",     href: "/settings",     icon: Settings    },
+];
+
+// ─── Dashboard item (not in the module registry) ──────────────────────────────
+
+const DASHBOARD_ITEM: SidebarNavItem = {
+  key:   "dashboard",
+  label: "Dashboard",
+  href:  "/",
+  icon:  LayoutDashboard,
+};
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export default function DashboardLayout() {
   const { profile, signOut, isAdmin } = useAuth();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const location = useLocation();
+
+  // Dynamic sidebar from the module registry; gracefully falls back to the
+  // hardcoded list when the API is unavailable.
+  const { navItems } = useVisibleModules();
 
   const formatRole = (role?: string) => {
     if (!role) return "Loading...";
@@ -51,48 +57,19 @@ export default function DashboardLayout() {
       .join(" ");
   };
 
-  // ── General nav — visible to every authenticated user ─────────────────────
-  const mainNavItems: NavItem[] = [
-    { name: "Dashboard",        href: "/",                icon: LayoutDashboard },
-    { name: "Leads",            href: "/leads",           icon: Users           },
-    { name: "Pipeline",         href: "/pipeline",        icon: Kanban          },
-    { name: "Telecaller",       href: "/telecaller",      icon: Phone           },
-    { name: "Call Log",         href: "/call-log",        icon: PhoneCall       },
-    { name: "Tasks",            href: "/tasks",           icon: CheckSquare     },
-    { name: "Proposals",        href: "/proposals",       icon: FileText        },
-    { name: "WhatsApp",         href: "/whatsapp",             icon: MessageCircle, matchPrefix: false },
-    { name: "WA Campaigns",    href: "/whatsapp/campaigns",   icon: Megaphone                    },
-    { name: "Social Media",     href: "/social-media",    icon: Share2          },
-    { name: "HR",               href: "/hr",              icon: Briefcase       },
-    { name: "Website Projects", href: "/website-projects",icon: Globe,          matchPrefix: true },
-    { name: "Client Portal",    href: "/client-portal",   icon: Building2       },
-  ];
+  // ── Active-link detection ─────────────────────────────────────────────────
+  const isActive = (item: SidebarNavItem) => {
+    if (item.href === "/") return location.pathname === "/";
+    if (item.matchPrefix) return location.pathname.startsWith(item.href);
+    return location.pathname === item.href;
+  };
 
-  // ── Admin nav — visible only to company_admin and super_admin ─────────────
-  const adminNavItems: NavItem[] = isAdmin
-    ? [
-        { name: "Analytics",    href: "/analytics",    icon: PieChart    },
-        { name: "Admin Panel",  href: "/admin",        icon: ShieldCheck },
-        { name: "Invoices",     href: "/invoices",     icon: Receipt     },
-        { name: "Integrations", href: "/integrations", icon: Zap         },
-        { name: "Users",        href: "/users",        icon: UserCog     },
-        { name: "Settings",     href: "/settings",     icon: Settings    },
-      ]
-    : [];
-
-  const isActive = (item: NavItem) =>
-    item.href === "/"
-      ? location.pathname === "/"
-      : item.matchPrefix
-        ? location.pathname.startsWith(item.href)
-        : location.pathname === item.href;
-
-  const NavLink = ({ item }: { item: NavItem }) => {
-    const Icon    = item.icon;
-    const active  = isActive(item);
+  // ── NavLink component ─────────────────────────────────────────────────────
+  const NavLink = ({ item }: { item: SidebarNavItem }) => {
+    const Icon   = item.icon;
+    const active = isActive(item);
     return (
       <Link
-        key={item.name}
         to={item.href}
         onClick={() => setIsSidebarOpen(false)}
         className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 ${
@@ -105,10 +82,17 @@ export default function DashboardLayout() {
           size={20}
           className={active ? "text-blue-600" : "text-gray-400"}
         />
-        {item.name}
+        <span className="flex-1 truncate">{item.label}</span>
+        {item.beta && (
+          <span className="text-[10px] bg-amber-100 text-amber-700 font-semibold px-1.5 py-0.5 rounded-full leading-none">
+            Beta
+          </span>
+        )}
       </Link>
     );
   };
+
+  // ─────────────────────────────────────────────────────────────────────────────
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
@@ -142,21 +126,25 @@ export default function DashboardLayout() {
         </div>
 
         <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
-          {/* ── Main modules ── */}
-          {mainNavItems.map((item) => (
-            <NavLink key={item.name} item={item} />
+
+          {/* ── Dashboard — always first ── */}
+          <NavLink item={DASHBOARD_ITEM} />
+
+          {/* ── Dynamic module items from the Module Registry ── */}
+          {navItems.map((item) => (
+            <NavLink key={item.key} item={item} />
           ))}
 
           {/* ── Administration section (admin roles only) ── */}
-          {adminNavItems.length > 0 && (
+          {isAdmin && (
             <>
               <div className="pt-4 pb-1 px-3">
                 <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">
                   Administration
                 </p>
               </div>
-              {adminNavItems.map((item) => (
-                <NavLink key={item.name} item={item} />
+              {ADMIN_UTILITY_ITEMS.map((item) => (
+                <NavLink key={item.key} item={item} />
               ))}
             </>
           )}

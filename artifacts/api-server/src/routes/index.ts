@@ -8,6 +8,7 @@ import whatsappWebhookRouter    from "./whatsapp-webhook";
 import whatsappQueueRouter      from "./whatsapp-queue";
 import whatsappCampaignsRouter  from "./whatsapp-campaigns";
 import aiRouter                 from "./ai";
+import modulesRouter            from "./modules";
 
 const router: IRouter = Router();
 
@@ -20,5 +21,6 @@ router.use(whatsappWebhookRouter);
 router.use(whatsappQueueRouter);
 router.use(whatsappCampaignsRouter);
 router.use(aiRouter);
+router.use(modulesRouter);
 
 export default router;
