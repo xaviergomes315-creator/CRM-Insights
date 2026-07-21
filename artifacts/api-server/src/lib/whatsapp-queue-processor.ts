@@ -11,6 +11,14 @@
  * which stays well within Meta's default throughput limits and ensures
  * the queue drains steadily without bursting.
  *
+ * Resilience:
+ *   - Startup credential check: if SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY
+ *     are absent the processor does not start, preventing log flooding.
+ *   - Exponential back-off: consecutive claim errors double the wait between
+ *     ticks (capped at MAX_BACKOFF_MS = 60 s).
+ *   - Circuit breaker: after CIRCUIT_OPEN_AFTER consecutive claim errors the
+ *     processor stops entirely and emits a single CIRCUIT OPEN log line.
+ *
  * Usage:
  *   import { startQueueProcessor } from "./whatsapp-queue-processor.js";
  *   startQueueProcessor();   // call once at server startup
@@ -28,6 +36,9 @@ const META_API_BASE    = "https://graph.facebook.com";
 type MetaSuccess = { wamid: string };
 type MetaFailure = { errorCode: string; errorMessage: string };
 type MetaResult  = MetaSuccess | MetaFailure;
+
+/** Return value of processNextItem distinguishes three outcomes. */
+type TickResult = "processed" | "empty" | "error";
 
 function isMetaSuccess(r: MetaResult): r is MetaSuccess {
   return "wamid" in r;
@@ -141,23 +152,26 @@ async function sendTemplateViaMetaApi(
 
 /**
  * Claims and processes the next pending queue item.
- * Returns true if an item was found and handled, false if the queue was empty.
- * Never throws — all errors are caught and recorded on the queue row.
+ * Returns:
+ *   "processed" — an item was found and handled (success or business failure)
+ *   "empty"     — the queue had no pending items
+ *   "error"     — a claim-level network/DB error occurred (triggers back-off)
+ * Never throws — all errors are caught internally.
  */
-async function processNextItem(): Promise<boolean> {
+async function processNextItem(): Promise<TickResult> {
   // ── 1. Atomically claim one pending item ───────────────────────────────────
   let item: Record<string, unknown>;
   try {
     const { data, error } = await supabase.rpc("claim_next_wa_queue_item");
     if (error) {
       console.error("[wa-queue] claim error:", error.message);
-      return false;
+      return "error";
     }
-    if (!Array.isArray(data) || data.length === 0) return false; // queue empty
+    if (!Array.isArray(data) || data.length === 0) return "empty"; // queue empty
     item = data[0] as Record<string, unknown>;
   } catch (err) {
     console.error("[wa-queue] unexpected claim error:", err);
-    return false;
+    return "error";
   }
 
   const itemId         = item["id"]              as string;
@@ -180,11 +194,11 @@ async function processNextItem(): Promise<boolean> {
 
   if (convErr || !conv) {
     await markFailed(itemId, "CONV_NOT_FOUND", "Conversation not found.");
-    return true;
+    return "processed";
   }
   if ((conv["status"] as string) === "blocked") {
     await markFailed(itemId, "CONV_BLOCKED", "Conversation is blocked.");
-    return true;
+    return "processed";
   }
 
   const contactPhone = conv["contact_phone"] as string;
@@ -202,7 +216,7 @@ async function processNextItem(): Promise<boolean> {
     // Validate template_id is present
     if (!templateId) {
       await markFailed(itemId, "NO_TEMPLATE_ID", "template_id is required for template messages.");
-      return true;
+      return "processed";
     }
 
     // Fetch template
@@ -216,12 +230,12 @@ async function processNextItem(): Promise<boolean> {
 
     if (tplErr || !tpl) {
       await markFailed(itemId, "TEMPLATE_NOT_FOUND", "Template not found.");
-      return true;
+      return "processed";
     }
     if ((tpl["status"] as string) !== "approved") {
       await markFailed(itemId, "TEMPLATE_NOT_APPROVED",
         `Template status is "${tpl["status"]}", must be "approved".`);
-      return true;
+      return "processed";
     }
 
     resolvedTemplateName = tpl["name"] as string;
@@ -251,7 +265,7 @@ async function processNextItem(): Promise<boolean> {
     // text
     if (!body.trim()) {
       await markFailed(itemId, "EMPTY_BODY", "Message body is empty.");
-      return true;
+      return "processed";
     }
 
     if (!accessToken || !phoneNumberId) {
@@ -290,7 +304,7 @@ async function processNextItem(): Promise<boolean> {
     // Don't fail the queue item — the message state is ambiguous; mark failed
     // so the operator can inspect and retry manually.
     await markFailed(itemId, "DB_INSERT_ERROR", msgErr.message);
-    return true;
+    return "processed";
   }
 
   // ── 6. Update conversation.last_message_at ────────────────────────────────
@@ -323,7 +337,7 @@ async function processNextItem(): Promise<boolean> {
     await markFailed(itemId, failure.errorCode, failure.errorMessage, msgRow?.["id"] as string | undefined);
   }
 
-  return true;
+  return "processed";
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -354,18 +368,62 @@ async function markFailed(
 
 // ── Interval management ────────────────────────────────────────────────────────
 
-const TICK_MS = 2_000; // 2 seconds between ticks — 30 messages/min max
+const TICK_MS             = 2_000;  // 2 seconds between ticks — 30 messages/min max
+const MAX_BACKOFF_MS      = 60_000; // cap exponential back-off at 60 s
+const CIRCUIT_OPEN_AFTER  = 10;     // trip circuit breaker after this many consecutive errors
 
 let intervalHandle: ReturnType<typeof setInterval> | null = null;
 
 // Guard: prevents a slow tick from overlapping with the next one.
 let tickRunning = false;
 
+// Back-off / circuit-breaker state
+let consecutiveErrors = 0;
+let backoffMs         = TICK_MS;
+let backoffUntil      = 0;
+let circuitOpen       = false;
+
 async function tick(): Promise<void> {
-  if (tickRunning) return;
+  if (tickRunning)          return;
+  if (circuitOpen)          return;
+  if (Date.now() < backoffUntil) return; // still in back-off window
+
   tickRunning = true;
   try {
-    await processNextItem();
+    const result = await processNextItem();
+
+    if (result === "error") {
+      consecutiveErrors++;
+
+      if (consecutiveErrors >= CIRCUIT_OPEN_AFTER) {
+        // Trip the circuit breaker — stop the loop, emit a single log line.
+        circuitOpen = true;
+        stopQueueProcessor();
+        console.error(
+          "[wa-queue] CIRCUIT OPEN — %d consecutive claim failures; processor halted. " +
+          "Fix SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY and restart the server.",
+          consecutiveErrors,
+        );
+        return;
+      }
+
+      // Exponential back-off (doubles each failure, capped at MAX_BACKOFF_MS)
+      backoffMs    = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
+      backoffUntil = Date.now() + backoffMs;
+      console.warn(
+        "[wa-queue] back-off %dms after %d consecutive error(s)",
+        backoffMs,
+        consecutiveErrors,
+      );
+    } else {
+      // "processed" or "empty" — reset error state
+      if (consecutiveErrors > 0) {
+        console.info("[wa-queue] recovered after %d error(s)", consecutiveErrors);
+      }
+      consecutiveErrors = 0;
+      backoffMs         = TICK_MS;
+      backoffUntil      = 0;
+    }
   } finally {
     tickRunning = false;
   }
@@ -374,9 +432,35 @@ async function tick(): Promise<void> {
 /**
  * Starts the queue processor background loop. Safe to call multiple times —
  * subsequent calls are no-ops if the processor is already running.
+ *
+ * Performs a startup credential check: if Supabase URL or service-role key
+ * are absent, logs a single warning and returns without starting the interval,
+ * preventing log flooding from guaranteed-to-fail network calls.
  */
 export function startQueueProcessor(): void {
   if (intervalHandle !== null) return;
+
+  // ── Startup credential check ───────────────────────────────────────────────
+  const supabaseUrl = (
+    process.env["SUPABASE_URL"] ?? process.env["VITE_SUPABASE_URL"] ?? ""
+  ).trim();
+  const serviceKey = process.env["SUPABASE_SERVICE_ROLE_KEY"]?.trim() ?? "";
+
+  if (!supabaseUrl || !serviceKey) {
+    console.warn(
+      "[wa-queue] SUPABASE_URL (or VITE_SUPABASE_URL) / SUPABASE_SERVICE_ROLE_KEY not set — " +
+      "queue processor will NOT start. Set these secrets and restart the server.",
+    );
+    return;
+  }
+
+  // Reset circuit-breaker state in case startQueueProcessor is called after
+  // a previous run tripped the breaker (e.g. in tests).
+  consecutiveErrors = 0;
+  backoffMs         = TICK_MS;
+  backoffUntil      = 0;
+  circuitOpen       = false;
+
   intervalHandle = setInterval(() => { void tick(); }, TICK_MS);
   // Run the first tick immediately so the queue isn't blocked for 2 s on startup
   void tick();

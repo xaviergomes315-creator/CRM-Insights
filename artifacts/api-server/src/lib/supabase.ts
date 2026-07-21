@@ -44,12 +44,16 @@ let _client: SupabaseClient | null = null;
 function getClient(): SupabaseClient {
   if (_client) return _client;
 
-  const url = process.env["VITE_SUPABASE_URL"]?.trim() ?? "";
+  // Prefer the server-side SUPABASE_URL; fall back to the Vite-prefixed name
+  // for backwards compatibility with environments that only set VITE_SUPABASE_URL.
+  const url = (
+    process.env["SUPABASE_URL"] ?? process.env["VITE_SUPABASE_URL"] ?? ""
+  ).trim();
   const key = process.env["SUPABASE_SERVICE_ROLE_KEY"]?.trim() ?? "";
 
   if (!url || !key) {
     console.warn(
-      "[Supabase] VITE_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is missing. " +
+      "[Supabase] SUPABASE_URL (or VITE_SUPABASE_URL) / SUPABASE_SERVICE_ROLE_KEY is missing. " +
         "Webhook lead inserts will NOT persist to the database.",
     );
     // Return a dummy client pointing at a placeholder — operations will fail

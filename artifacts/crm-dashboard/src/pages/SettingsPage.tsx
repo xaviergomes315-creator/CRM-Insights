@@ -252,12 +252,22 @@ export default function SettingsPage() {
         locale:        companyForm.locale,
       })
       .eq('id', profile.company_id);
-    setSavingCo(false);
 
     if (error) {
+      setSavingCo(false);
       toast.error('Failed to save company profile', { description: error.message });
       return;
     }
+
+    // MED-07 / HIGH-02: keep business_configuration in sync with companies.
+    // The DB trigger (migration 029) handles this server-side, but we also
+    // update here as a belt-and-suspenders guard for direct client writes.
+    await supabase
+      .from('business_configuration')
+      .update({ business_type: companyForm.business_type })
+      .eq('company_id', profile.company_id);
+
+    setSavingCo(false);
     toast.success('Company profile updated');
     setCompany(c => c ? {
       ...c,
