@@ -38,12 +38,14 @@ export interface CompanyRow {
   plan?: "free" | "starter" | "pro" | "enterprise";
   updated_at?: string;
   // ── Universal Business Foundation (Phase 1) ──────────────────
+  // These columns are NOT NULL with DB-level defaults (migration 027).
+  // All rows are guaranteed to have a non-null value after migration.
   /** Kind of business — drives module defaults and UI labels. */
-  business_type?: BusinessType;
+  business_type: BusinessType;
   /** ISO 4217 currency code used for proposals, invoices, and AI prompts. */
-  currency_code?: CurrencyCode;
+  currency_code: CurrencyCode;
   /** BCP-47 locale tag used for number/date formatting and AI prompt localisation. */
-  locale?: SupportedLocale;
+  locale: SupportedLocale;
 }
 
 // ─── Universal Business Foundation types ──────────────────────────────────────

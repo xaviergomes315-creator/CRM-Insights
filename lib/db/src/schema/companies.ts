@@ -1,5 +1,4 @@
 import { pgTable, uuid, text, timestamp } from "drizzle-orm/pg-core";
-import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
 
 // ─── Allowed-value constants (mirror migration 027 CHECK constraints) ──────────
@@ -77,19 +76,46 @@ export const companiesTable = pgTable("companies", {
   updated_at:    timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-// ─── Zod schemas derived from the table ──────────────────────────────────────
+// ─── Zod schemas ──────────────────────────────────────────────────────────────
+// Hand-written to avoid the drizzle-zod v0.8.x / Zod v3 type incompatibility.
+// The drizzle-zod package (v0.8.x) updated its TypeScript signatures to target
+// Zod v4 internals while the workspace catalog pins Zod to v3.  Writing these
+// schemas manually keeps full runtime validation and correct z.infer<> types
+// without requiring any version changes.
 
-export const insertCompanySchema = createInsertSchema(companiesTable, {
+/** Validates data for INSERT operations (id / timestamps omitted; defaults optional). */
+export const insertCompanySchema = z.object({
+  name:          z.string().min(1, "Company name is required"),
+  slug:          z.string().nullable().optional(),
+  plan:          z.enum(["free", "starter", "pro", "enterprise"]).default("free"),
+  address:       z.string().nullable().optional(),
+  gst_number:    z.string().nullable().optional(),
+  email:         z.string().nullable().optional(),
+  phone:         z.string().nullable().optional(),
+  website:       z.string().nullable().optional(),
+  logo_url:      z.string().nullable().optional(),
   business_type: z.enum(BUSINESS_TYPES).default("agency"),
   currency_code: z.enum(CURRENCY_CODES).default("INR"),
   locale:        z.enum(SUPPORTED_LOCALES).default("en-IN"),
-  plan:          z.enum(["free", "starter", "pro", "enterprise"]).default("free"),
-}).omit({ id: true, created_at: true, updated_at: true });
+});
 
-export const selectCompanySchema = createSelectSchema(companiesTable, {
+/** Validates a full company row as returned by Drizzle SELECT queries. */
+export const selectCompanySchema = z.object({
+  id:            z.string().uuid(),
+  name:          z.string(),
+  slug:          z.string().nullable(),
+  plan:          z.string(),
+  address:       z.string().nullable(),
+  gst_number:    z.string().nullable(),
+  email:         z.string().nullable(),
+  phone:         z.string().nullable(),
+  website:       z.string().nullable(),
+  logo_url:      z.string().nullable(),
   business_type: z.enum(BUSINESS_TYPES),
   currency_code: z.enum(CURRENCY_CODES),
   locale:        z.enum(SUPPORTED_LOCALES),
+  created_at:    z.coerce.date(),
+  updated_at:    z.coerce.date(),
 });
 
 export type InsertCompany = z.infer<typeof insertCompanySchema>;

@@ -1,5 +1,4 @@
 import { pgTable, uuid, text, jsonb, timestamp } from "drizzle-orm/pg-core";
-import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
 import { companiesTable, BUSINESS_TYPES, type BusinessType } from "./companies";
 
@@ -152,31 +151,34 @@ export const businessConfigurationTable = pgTable("business_configuration", {
   updated_at:       timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-// ─── Drizzle-derived Zod schemas ──────────────────────────────────────────────
+// ─── Zod schemas ──────────────────────────────────────────────────────────────
+// Hand-written to avoid the drizzle-zod v0.8.x / Zod v3 type incompatibility.
+// See lib/db/src/schema/companies.ts for rationale.
 
-export const insertBusinessConfigurationSchema = createInsertSchema(
-  businessConfigurationTable,
-  {
-    business_type:    z.enum(BUSINESS_TYPES).default("agency"),
-    enabled_modules:  enabledModulesSchema,
-    dashboard_layout: dashboardLayoutSchema,
-    feature_flags:    featureFlagsSchema,
-    branding:         brandingConfigSchema,
-    ai_configuration: aiConfigurationSchema,
-  },
-).omit({ id: true, created_at: true, updated_at: true });
+/** Validates data for INSERT operations (id / timestamps omitted; defaults optional). */
+export const insertBusinessConfigurationSchema = z.object({
+  company_id:       z.string().uuid(),
+  business_type:    z.enum(BUSINESS_TYPES).default("agency"),
+  enabled_modules:  enabledModulesSchema.optional(),
+  dashboard_layout: dashboardLayoutSchema.optional(),
+  feature_flags:    featureFlagsSchema.optional(),
+  branding:         brandingConfigSchema.optional(),
+  ai_configuration: aiConfigurationSchema.optional(),
+});
 
-export const selectBusinessConfigurationSchema = createSelectSchema(
-  businessConfigurationTable,
-  {
-    business_type:    z.enum(BUSINESS_TYPES),
-    enabled_modules:  enabledModulesSchema,
-    dashboard_layout: dashboardLayoutSchema,
-    feature_flags:    featureFlagsSchema,
-    branding:         brandingConfigSchema,
-    ai_configuration: aiConfigurationSchema,
-  },
-);
+/** Validates a full business_configuration row as returned by Drizzle SELECT queries. */
+export const selectBusinessConfigurationSchema = z.object({
+  id:               z.string().uuid(),
+  company_id:       z.string().uuid(),
+  business_type:    z.enum(BUSINESS_TYPES),
+  enabled_modules:  enabledModulesSchema,
+  dashboard_layout: dashboardLayoutSchema,
+  feature_flags:    featureFlagsSchema,
+  branding:         brandingConfigSchema,
+  ai_configuration: aiConfigurationSchema,
+  created_at:       z.coerce.date(),
+  updated_at:       z.coerce.date(),
+});
 
 // ─── TypeScript types ─────────────────────────────────────────────────────────
 

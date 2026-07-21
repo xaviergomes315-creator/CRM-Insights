@@ -48,7 +48,7 @@ app.use(
 app.use(
   express.json({
     limit: "10mb",
-    verify: (req: Record<string, unknown>, _res, buf) => {
+    verify: (req: import("http").IncomingMessage & Record<string, unknown>, _res, buf) => {
       req["rawBody"] = buf;
     },
   }),
