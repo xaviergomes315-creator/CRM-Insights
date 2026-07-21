@@ -37,7 +37,88 @@ export interface CompanyRow {
   slug?: string;
   plan?: "free" | "starter" | "pro" | "enterprise";
   updated_at?: string;
+  // ── Universal Business Foundation (Phase 1) ──────────────────
+  /** Kind of business — drives module defaults and UI labels. */
+  business_type?: BusinessType;
+  /** ISO 4217 currency code used for proposals, invoices, and AI prompts. */
+  currency_code?: CurrencyCode;
+  /** BCP-47 locale tag used for number/date formatting and AI prompt localisation. */
+  locale?: SupportedLocale;
 }
+
+// ─── Universal Business Foundation types ──────────────────────────────────────
+
+export type BusinessType =
+  | 'agency'
+  | 'restaurant'
+  | 'gym'
+  | 'clinic'
+  | 'retail'
+  | 'real_estate'
+  | 'manufacturing'
+  | 'education'
+  | 'finance'
+  | 'hospitality'
+  | 'other';
+
+export type CurrencyCode =
+  | 'INR' | 'USD' | 'EUR' | 'GBP' | 'AED' | 'SGD'
+  | 'AUD' | 'CAD' | 'JPY' | 'CNY' | 'MYR' | 'THB' | 'ZAR';
+
+export type SupportedLocale =
+  | 'en-IN' | 'en-US' | 'en-GB' | 'en-AU' | 'en-AE'
+  | 'en-SG' | 'en-MY' | 'en-ZA' | 'zh-CN' | 'ja-JP'
+  | 'de-DE' | 'fr-FR' | 'ar-AE' | 'th-TH';
+
+/** Human-readable labels for each business type. */
+export const BUSINESS_TYPE_LABELS: Record<BusinessType, string> = {
+  agency:        'Digital / Creative Agency',
+  restaurant:    'Restaurant & Food Service',
+  gym:           'Gym & Fitness',
+  clinic:        'Clinic & Healthcare',
+  retail:        'Retail & E-Commerce',
+  real_estate:   'Real Estate',
+  manufacturing: 'Manufacturing',
+  education:     'Education & Training',
+  finance:       'Finance & Accounting',
+  hospitality:   'Hospitality & Travel',
+  other:         'Other',
+};
+
+/** Human-readable labels for each currency code. */
+export const CURRENCY_CODE_LABELS: Record<CurrencyCode, string> = {
+  INR: 'INR — Indian Rupee (₹)',
+  USD: 'USD — US Dollar ($)',
+  EUR: 'EUR — Euro (€)',
+  GBP: 'GBP — British Pound (£)',
+  AED: 'AED — UAE Dirham (د.إ)',
+  SGD: 'SGD — Singapore Dollar (S$)',
+  AUD: 'AUD — Australian Dollar (A$)',
+  CAD: 'CAD — Canadian Dollar (C$)',
+  JPY: 'JPY — Japanese Yen (¥)',
+  CNY: 'CNY — Chinese Yuan (¥)',
+  MYR: 'MYR — Malaysian Ringgit (RM)',
+  THB: 'THB — Thai Baht (฿)',
+  ZAR: 'ZAR — South African Rand (R)',
+};
+
+/** Human-readable labels for each locale. */
+export const LOCALE_LABELS: Record<SupportedLocale, string> = {
+  'en-IN': 'English (India)',
+  'en-US': 'English (United States)',
+  'en-GB': 'English (United Kingdom)',
+  'en-AU': 'English (Australia)',
+  'en-AE': 'English (UAE)',
+  'en-SG': 'English (Singapore)',
+  'en-MY': 'English (Malaysia)',
+  'en-ZA': 'English (South Africa)',
+  'zh-CN': 'Chinese Simplified (China)',
+  'ja-JP': 'Japanese (Japan)',
+  'de-DE': 'German (Germany)',
+  'fr-FR': 'French (France)',
+  'ar-AE': 'Arabic (UAE)',
+  'th-TH': 'Thai (Thailand)',
+};
 
 /** public.user_profiles */
 export interface UserProfileRow {

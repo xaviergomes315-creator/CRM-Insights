@@ -2,10 +2,14 @@ import { useState, useEffect, useCallback } from 'react';
 import { clsx } from 'clsx';
 import {
   ShieldAlert, ShieldCheck, Building2, Users2, Mail, ChevronDown,
-  Loader2, Plus, Trash2, Settings2, Check, Clock,
+  Loader2, Plus, Trash2, Settings2, Check, Clock, Globe2,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
+import {
+  BUSINESS_TYPE_LABELS, CURRENCY_CODE_LABELS, LOCALE_LABELS,
+  type BusinessType, type CurrencyCode, type SupportedLocale,
+} from '@/lib/supabase';
 import { toast } from 'sonner';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -14,16 +18,22 @@ type InviteRole = 'manager' | 'employee';
 type InviteStatus = 'pending' | 'accepted' | 'expired';
 
 interface CompanyData {
-  id:      string;
-  name:    string;
-  slug:    string;
-  plan:    string;
-  address: string | null;
+  id:            string;
+  name:          string;
+  slug:          string;
+  plan:          string;
+  address:       string | null;
+  business_type: BusinessType;
+  currency_code: CurrencyCode;
+  locale:        SupportedLocale;
 }
 
 interface CompanyForm {
-  name:    string;
-  address: string;
+  name:          string;
+  address:       string;
+  business_type: BusinessType;
+  currency_code: CurrencyCode;
+  locale:        SupportedLocale;
 }
 
 interface PendingInvite {
@@ -45,6 +55,26 @@ const ROLE_OPTIONS: { value: InviteRole; label: string }[] = [
   { value: 'manager',  label: 'Manager'  },
   { value: 'employee', label: 'Employee' },
 ];
+
+const BUSINESS_TYPE_OPTIONS = Object.entries(BUSINESS_TYPE_LABELS).map(
+  ([value, label]) => ({ value: value as BusinessType, label }),
+);
+
+const CURRENCY_OPTIONS = Object.entries(CURRENCY_CODE_LABELS).map(
+  ([value, label]) => ({ value: value as CurrencyCode, label }),
+);
+
+const LOCALE_OPTIONS = Object.entries(LOCALE_LABELS).map(
+  ([value, label]) => ({ value: value as SupportedLocale, label }),
+);
+
+const EMPTY_COMPANY_FORM: CompanyForm = {
+  name:          '',
+  address:       '',
+  business_type: 'agency',
+  currency_code: 'INR',
+  locale:        'en-IN',
+};
 
 const STATUS_STYLE: Record<InviteStatus, string> = {
   pending:  'bg-amber-50 text-amber-700 border-amber-200',
@@ -143,7 +173,7 @@ export default function SettingsPage() {
   // ── State ────────────────────────────────────────────────────────────────
   const [activeTab,    setActiveTab]    = useState<'company' | 'team'>('company');
   const [company,      setCompany]      = useState<CompanyData | null>(null);
-  const [companyForm,  setCompanyForm]  = useState<CompanyForm>({ name: '', address: '' });
+  const [companyForm,  setCompanyForm]  = useState<CompanyForm>(EMPTY_COMPANY_FORM);
   const [companyErrs,  setCompanyErrs]  = useState<Partial<CompanyForm>>({});
   const [savingCo,     setSavingCo]     = useState(false);
   const [loadingCo,    setLoadingCo]    = useState(true);
@@ -162,7 +192,7 @@ export default function SettingsPage() {
     setLoadingCo(true);
     const { data, error } = await supabase
       .from('companies')
-      .select('id, name, slug, plan, address')
+      .select('id, name, slug, plan, address, business_type, currency_code, locale')
       .eq('id', profile.company_id)
       .single();
     setLoadingCo(false);
@@ -172,7 +202,13 @@ export default function SettingsPage() {
     }
     const co = data as CompanyData;
     setCompany(co);
-    setCompanyForm({ name: co.name, address: co.address ?? '' });
+    setCompanyForm({
+      name:          co.name,
+      address:       co.address ?? '',
+      business_type: co.business_type ?? 'agency',
+      currency_code: co.currency_code ?? 'INR',
+      locale:        co.locale        ?? 'en-IN',
+    });
   }, [profile?.company_id]);
 
   // ── Fetch pending invites ────────────────────────────────────────────────
@@ -209,8 +245,11 @@ export default function SettingsPage() {
     const { error } = await supabase
       .from('companies')
       .update({
-        name:    companyForm.name.trim(),
-        address: companyForm.address.trim() || null,
+        name:          companyForm.name.trim(),
+        address:       companyForm.address.trim() || null,
+        business_type: companyForm.business_type,
+        currency_code: companyForm.currency_code,
+        locale:        companyForm.locale,
       })
       .eq('id', profile.company_id);
     setSavingCo(false);
@@ -220,7 +259,14 @@ export default function SettingsPage() {
       return;
     }
     toast.success('Company profile updated');
-    setCompany(c => c ? { ...c, name: companyForm.name.trim(), address: companyForm.address.trim() || null } : c);
+    setCompany(c => c ? {
+      ...c,
+      name:          companyForm.name.trim(),
+      address:       companyForm.address.trim() || null,
+      business_type: companyForm.business_type,
+      currency_code: companyForm.currency_code,
+      locale:        companyForm.locale,
+    } : c);
     setCompanyErrs({});
   };
 
@@ -341,11 +387,11 @@ export default function SettingsPage() {
         <Section
           icon={Building2}
           title="Company Profile"
-          sub="Update your company name and address. Changes are scoped to your organisation."
+          sub="Update your company name, address, and business identity. Changes are scoped to your organisation."
         >
           {loadingCo ? (
             <div className="space-y-4 animate-pulse">
-              {[1, 2].map(i => (
+              {[1, 2, 3].map(i => (
                 <div key={i}>
                   <div className="h-3 w-28 rounded bg-muted mb-2" />
                   <div className="h-10 rounded-lg bg-muted" />
@@ -364,7 +410,7 @@ export default function SettingsPage() {
                 />
               </Field>
 
-              <Field label="Address" error={companyErrs.address}>
+              <Field label="Address">
                 <textarea
                   rows={3}
                   value={companyForm.address}
@@ -374,16 +420,76 @@ export default function SettingsPage() {
                 />
               </Field>
 
+              {/* ── Business Identity (Phase 1 — Universal Business Foundation) ── */}
+              <div className="border-t border-border pt-4">
+                <div className="flex items-center gap-2 mb-4">
+                  <Globe2 className="h-4 w-4 text-primary" />
+                  <p className="text-xs font-semibold text-foreground uppercase tracking-wide">Business Identity</p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  {/* Business Type */}
+                  <Field label="Business Type">
+                    <div className="relative">
+                      <select
+                        value={companyForm.business_type}
+                        onChange={e => setCompanyForm(f => ({ ...f, business_type: e.target.value as BusinessType }))}
+                        className={clsx(inputClass(), 'appearance-none pr-8 cursor-pointer')}
+                      >
+                        {BUSINESS_TYPE_OPTIONS.map(opt => (
+                          <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
+                      </select>
+                      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">Used to tailor modules and AI suggestions.</p>
+                  </Field>
+
+                  {/* Currency */}
+                  <Field label="Currency">
+                    <div className="relative">
+                      <select
+                        value={companyForm.currency_code}
+                        onChange={e => setCompanyForm(f => ({ ...f, currency_code: e.target.value as CurrencyCode }))}
+                        className={clsx(inputClass(), 'appearance-none pr-8 cursor-pointer')}
+                      >
+                        {CURRENCY_OPTIONS.map(opt => (
+                          <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
+                      </select>
+                      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">Shown on proposals and invoices.</p>
+                  </Field>
+
+                  {/* Locale */}
+                  <Field label="Language & Region">
+                    <div className="relative">
+                      <select
+                        value={companyForm.locale}
+                        onChange={e => setCompanyForm(f => ({ ...f, locale: e.target.value as SupportedLocale }))}
+                        className={clsx(inputClass(), 'appearance-none pr-8 cursor-pointer')}
+                      >
+                        {LOCALE_OPTIONS.map(opt => (
+                          <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
+                      </select>
+                      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">Used for number and date formatting.</p>
+                  </Field>
+                </div>
+              </div>
+
               {/* Read-only fields */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
-                <div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1 border-t border-border mt-2">
+                <div className="mt-4">
                   <p className="text-xs font-semibold text-foreground mb-1.5">Company Slug</p>
                   <p className="rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-sm text-muted-foreground font-mono">
                     {company?.slug ?? '—'}
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">URL identifier — cannot be changed.</p>
                 </div>
-                <div>
+                <div className="mt-4">
                   <p className="text-xs font-semibold text-foreground mb-1.5">Plan</p>
                   <p className="rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-sm text-muted-foreground capitalize">
                     {company?.plan ?? '—'}
