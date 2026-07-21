@@ -19,3 +19,4 @@
 
 export * from "./companies";
 export * from "./business-configuration";
+export * from "./module-registry";
