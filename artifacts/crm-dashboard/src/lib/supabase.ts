@@ -8,8 +8,8 @@ import { createClient } from "@supabase/supabase-js";
 // Defined here (DB-level concept) to avoid circular imports with AuthContext.
 export type UserRole = "super_admin" | "company_admin" | "manager" | "employee";
 
-const url = (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? "";
-const key = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? "";
+const url = import.meta.env.VITE_SUPABASE_URL as string;
+const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
 if (!url || !key) {
   console.error(
@@ -18,12 +18,7 @@ if (!url || !key) {
   );
 }
 
-// Use a placeholder URL when credentials are missing so the client
-// constructs without throwing — auth calls will fail gracefully.
-export const supabase = createClient(
-  url || "https://placeholder.supabase.co",
-  key || "placeholder",
-);
+export const supabase = createClient(url ?? "", key ?? "");
 
 // ─── Row types (snake_case as stored in Postgres) ─────────────────────────────
 
